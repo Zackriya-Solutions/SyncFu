@@ -42,9 +42,13 @@ export function IslandOverlay() {
     }
   }, [current]);
 
+  // Uncontrolled Island runs the ratified lifecycle: arrive EXPANDED, then
+  // auto-collapse to the compact pill (OQ-2). `key={current.id}` restarts that
+  // entry transition for each new notification. The window frame never resizes
+  // (D3); only the inner island morphs.
   return (
     <div data-testid="island-root" className="island-root">
-      {current && <Island notification={current} state="expanded" />}
+      {current && <Island key={current.id} notification={current} />}
     </div>
   );
 }

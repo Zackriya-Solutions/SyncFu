@@ -1,105 +1,170 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import type { NotificationPayload } from "@/types/notification";
-import { notchPath, RADII, wallPadding } from "@/lib/notchPath";
 import { buildStyleVars } from "@/lib/styleVars";
+import {
+  createMorphController,
+  type IslandState,
+  type MorphController,
+} from "@/lib/islandMorph";
 import { IslandCompact } from "./IslandCompact";
 import { IslandExpanded } from "./IslandExpanded";
 
-// Static island host: the inline SVG notch shape (from T2's notchPath) rendered
-// BEHIND the content, with content inset off the concave shoulders via T2's
-// wallPadding rule (R-WALL). No spring/morph machinery lives here - that is
-// T4b. This component only renders one settled state (compact | expanded).
+// Island morph host (T4b). Wires T2's spring engine (via the ported
+// islandMorph controller) so the island morphs compact<->expanded INSIDE the
+// fixed OS frame (D3: nothing here resizes the window). The controller owns all
+// animated geometry (box size, SVG viewBox + path `d`, `--di-wall`) and writes
+// it imperatively to the refs below every frame; React owns ONLY the structure,
+// the 27 `--s-*` style overrides, and which anatomy (compact | expanded) renders.
+// Keeping geometry out of JSX is deliberate: a React re-render can never clobber
+// a live frame.
+//
+// Lifecycle (OQ-2 ratified): arrive EXPANDED, hold, then auto-collapse to the
+// compact live pill. `--wait` items stay expanded until answered (T5b). The
+// imperative handle (expand/collapse) is the trigger surface T5 drives.
 
-export type IslandState = "compact" | "expanded";
+export type { IslandState };
 
-/** Default envelope dims per state (D4 defaults: compactWidth 218, height 34;
- *  expandedWidth 380). Expanded height is measured from content. */
-const COMPACT_W = 218;
-const COMPACT_H = 34;
-const EXPANDED_W = 380;
-/** Floor so the expanded shape never collapses when content is unmeasured
- *  (jsdom reports 0 height; the real browser measures the true content box). */
-const EXPANDED_MIN_H = 72;
+/** Ratified entry hold before the auto-collapse morph. T5b owns the full
+ *  lifecycle state machine and may tune this; it is the default, not a policy. */
+const ENTRY_HOLD_MS = 2600;
 
-/**
- * Compact pill surface is PURE BLACK in macOS notch mode regardless of
- * appearance (invariant d): it hugs the physical, opaque-black notch cutout and
- * must be indistinguishable from it. It deliberately does NOT read `--s-card-bg`
- * or any appearance setting (that lands in T4b). The expanded surface DOES honor
- * the shared `--s-card-bg` override, defaulting to the mockup's frosted charcoal.
- */
-const COMPACT_FILL = "#000000";
-const EXPANDED_FILL = "var(--s-card-bg, rgba(13,13,15,0.94))";
-
-interface IslandProps {
-  readonly notification: NotificationPayload;
+/** Imperative trigger surface for T5 (lifecycle interruption / --wait). */
+export interface IslandHandle {
+  expand(): void;
+  collapse(): void;
   readonly state: IslandState;
 }
 
-export function Island({ notification, state }: IslandProps) {
+function prefersReducedMotion(): boolean {
+  return !!(
+    typeof window !== "undefined" &&
+    window.matchMedia &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
+
+interface IslandProps {
+  readonly notification: NotificationPayload;
+  /** Optional CONTROLLED state. When set, the island is pinned to it (springs
+   *  snapped, no auto-collapse) - used by the static render harness and unit
+   *  tests. Omit it for the production lifecycle (arrive expanded -> collapse). */
+  readonly state?: IslandState;
+}
+
+export const Island = forwardRef<IslandHandle, IslandProps>(function Island(
+  { notification, state },
+  ref
+) {
+  const islandRef = useRef<HTMLDivElement>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const pathRef = useRef<SVGPathElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
-  const [measuredH, setMeasuredH] = useState(EXPANDED_MIN_H);
+  const controllerRef = useRef<MorphController | null>(null);
 
-  const expanded = state === "expanded";
+  const controlled = state != null;
+  const [renderState, setRenderState] = useState<IslandState>(state ?? "expanded");
+  const renderStateRef = useRef(renderState);
+  renderStateRef.current = renderState;
 
-  // Measure the settled content box (in normal flow) so the shape height matches
-  // it exactly (mirrors the mockup's mountStatic `inner.offsetHeight`). This is
-  // static sizing, not a morph: it runs per content change, no animation.
+  useImperativeHandle(
+    ref,
+    () => ({
+      expand: () => setRenderState("expanded"),
+      collapse: () => setRenderState("compact"),
+      get state() {
+        return renderStateRef.current;
+      },
+    }),
+    []
+  );
+
+  // A controlled `state` prop drives the rendered anatomy.
+  useEffect(() => {
+    if (state != null) setRenderState(state);
+  }, [state]);
+
+  // Create the controller once the refs exist and ARRIVE at the initial state
+  // instantly (snap). Cleanup disposes on unmount AND on window-close so no rAF
+  // survives teardown (R-RAF-DISPOSE, R-PERF).
   useLayoutEffect(() => {
-    if (!expanded) return;
+    const island = islandRef.current;
+    const svg = svgRef.current;
+    const path = pathRef.current;
+    const content = contentRef.current;
+    if (!island || !svg || !path || !content) return;
+
+    const controller = createMorphController({ island, svg, path, content });
+    controllerRef.current = controller;
+    controller.snap(renderStateRef.current, prefersReducedMotion());
+
+    const onClose = () => controller.dispose();
+    window.addEventListener("beforeunload", onClose);
+    return () => {
+      window.removeEventListener("beforeunload", onClose);
+      controller.dispose();
+      controllerRef.current = null;
+    };
+    // Create once; renderState transitions are handled by the effect below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Animate on every renderState change AFTER the initial snap. The first run is
+  // skipped because snap() (above) already arrived at the initial state.
+  const didMount = useRef(false);
+  useLayoutEffect(() => {
+    const controller = controllerRef.current;
+    if (!controller) return;
+    if (!didMount.current) {
+      didMount.current = true;
+      return;
+    }
+    controller.animateTo(renderState, prefersReducedMotion());
+  }, [renderState]);
+
+  // Re-measure expanded content when it changes size (rounding-guarded retarget).
+  useEffect(() => {
+    if (renderState !== "expanded") return;
+    const controller = controllerRef.current;
     const el = contentRef.current;
-    if (!el) return;
-    const measure = () => setMeasuredH(Math.max(el.offsetHeight, EXPANDED_MIN_H));
-    measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
+    if (!controller || !el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => controller.measure());
     observer.observe(el);
     return () => observer.disconnect();
-  }, [expanded, notification]);
+  }, [renderState, notification]);
 
-  const W = expanded ? EXPANDED_W : COMPACT_W;
-  const H = expanded ? measuredH : COMPACT_H;
-  const t = expanded ? RADII.expandedTop : RADII.compactTop;
-  const b = expanded ? RADII.expandedBottom : RADII.compactBottom;
+  // Ratified entry transition: arrive expanded, hold, auto-collapse to the pill.
+  // Skipped while controlled (the harness/tests pin the state).
+  useEffect(() => {
+    if (controlled) return;
+    const id = setTimeout(() => setRenderState("compact"), ENTRY_HOLD_MS);
+    return () => clearTimeout(id);
+  }, [controlled]);
 
-  const d = notchPath({ W, H, t, b });
-  const fill = expanded ? EXPANDED_FILL : COMPACT_FILL;
-  // The 27 `--s-*` overrides must be in scope for the inline SVG path (which reads
-  // `var(--s-card-bg, ...)`) AND the content. The path is `.di-island > svg > path`
-  // and the content is `.di-island > .di-content > ...`, so the ONLY common
-  // ancestor is `.di-island`. Set the shared vars here (invariant c). Compact keeps
-  // its hardcoded #000000 fill and never reads these (invariant d).
+  const expanded = renderState === "expanded";
+  // The 27 `--s-*` overrides live on the `.di-island` root so they reach BOTH the
+  // SVG path (`var(--s-card-bg, ...)`) and the content (invariant c). Compact
+  // keeps its hardcoded #000000 fill and never reads these (invariant d).
   const styleVars = buildStyleVars(notification.style, notification.font);
-  // R-WALL: content padding derives from the shoulder inset (`t`), never letting
-  // text/icons cross the concave shoulder. Published as `--di-wall` for parity.
-  const padX = wallPadding(t, expanded ? "card" : "compact");
-
-  // Expanded height is content-driven (auto): the in-flow content sizes the box,
-  // the absolute SVG fills it. Compact is a fixed-height pill.
-  const sizeStyle = expanded ? { width: W } : { width: W, height: H };
 
   return (
     <div
       className="di-island"
       data-testid="island"
-      data-state={state}
-      style={{ ...styleVars, ...sizeStyle, ["--di-wall" as string]: `${t}px` }}
+      data-state={renderState}
+      style={styleVars}
+      ref={islandRef}
     >
-      <svg
-        className="di-shape"
-        preserveAspectRatio="none"
-        viewBox={`0 0 ${W} ${H}`}
-        width={W}
-        height={H}
-        aria-hidden="true"
-      >
-        <path d={d} fill={fill} />
+      <svg className="di-shape" preserveAspectRatio="none" aria-hidden="true" ref={svgRef}>
+        <path ref={pathRef} />
       </svg>
-      <div
-        className="di-content"
-        ref={contentRef}
-        style={{ paddingLeft: padX, paddingRight: padX }}
-      >
+      <div className="di-content" ref={contentRef}>
         {expanded ? (
           <IslandExpanded notification={notification} />
         ) : (
@@ -108,4 +173,4 @@ export function Island({ notification, state }: IslandProps) {
       </div>
     </div>
   );
-}
+});
