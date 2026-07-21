@@ -11,6 +11,12 @@ import { defineConfig, devices } from "@playwright/test";
 // chromium baseline (chromium-win32) is generated on a Windows runner and, per
 // the CI-budget default, exercised nightly rather than per-PR.
 const PORT = 5199;
+// Vite serves the T2 shape harness (e2e/harness/island.html) so its screenshots
+// exercise the real ported TS modules; the mockup gallery stays on the static
+// python server above. Vite's strictPort:1420 (vite.config.ts) is the fixed URL.
+// Vite binds to localhost (IPv6 ::1), not IPv4 127.0.0.1 - use the hostname.
+const HARNESS_PORT = 1420;
+export const HARNESS_URL = `http://localhost:${HARNESS_PORT}/e2e/harness/island.html`;
 
 export default defineConfig({
   testDir: "e2e",
@@ -29,9 +35,16 @@ export default defineConfig({
     { name: "webkit", use: { ...devices["Desktop Safari"] } },
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },
   ],
-  webServer: {
-    command: `python3 -m http.server ${PORT}`,
-    url: `http://127.0.0.1:${PORT}/tasks/dynamic-island-mockup.html`,
-    reuseExistingServer: !process.env.CI,
-  },
+  webServer: [
+    {
+      command: `python3 -m http.server ${PORT}`,
+      url: `http://127.0.0.1:${PORT}/tasks/dynamic-island-mockup.html`,
+      reuseExistingServer: !process.env.CI,
+    },
+    {
+      command: "pnpm vite",
+      url: HARNESS_URL,
+      reuseExistingServer: !process.env.CI,
+    },
+  ],
 });

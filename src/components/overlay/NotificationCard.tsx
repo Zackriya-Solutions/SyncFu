@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import type { NotificationPayload, StyleOverrides, Action } from "@/types/notification";
+import type { NotificationPayload, Action } from "@/types/notification";
 import { NotificationIcon } from "./NotificationIcon";
 import { RelativeTime } from "./RelativeTime";
 import { useGoogleFont } from "@/hooks/useGoogleFont";
+import { buildStyleVars } from "@/lib/styleVars";
 
 /** Auto-dismiss timeouts by priority (ms). Critical never auto-dismisses. */
 const TIMEOUTS: Record<string, number | null> = {
@@ -248,60 +249,6 @@ function resolveTimeout(
   if (typeof timeout === "object" && timeout.never) return null;
   if (typeof timeout === "object" && timeout.seconds) return timeout.seconds * 1000;
   return TIMEOUTS[priority] ?? 8000;
-}
-
-/** Maps from StyleOverrides key to CSS custom property name */
-const STYLE_VAR_MAP: Record<string, string> = {
-  accentColor: "--s-accent-color",
-  cardBg: "--s-card-bg",
-  cardBorderRadius: "--s-card-border-radius",
-  iconColor: "--s-icon-color",
-  iconBg: "--s-icon-bg",
-  iconBorderColor: "--s-icon-border-color",
-  titleColor: "--s-title-color",
-  titleFontSize: "--s-title-font-size",
-  bodyColor: "--s-body-color",
-  bodyFontSize: "--s-body-font-size",
-  senderColor: "--s-sender-color",
-  timeColor: "--s-time-color",
-  btnBg: "--s-btn-bg",
-  btnColor: "--s-btn-color",
-  btnBorderColor: "--s-btn-border-color",
-  btn2Bg: "--s-btn2-bg",
-  btn2Color: "--s-btn2-color",
-  btn2BorderColor: "--s-btn2-border-color",
-  dangerBg: "--s-danger-bg",
-  dangerColor: "--s-danger-color",
-  dangerBorderColor: "--s-danger-border-color",
-  progressColor: "--s-progress-color",
-  progressTrackColor: "--s-progress-track-color",
-  countdownColor: "--s-countdown-color",
-  closeBg: "--s-close-bg",
-  closeColor: "--s-close-color",
-  closeBorderColor: "--s-close-border-color",
-};
-
-/** Build CSS custom properties object from style overrides */
-function buildStyleVars(
-  style: StyleOverrides | undefined,
-  font: string | undefined,
-): React.CSSProperties {
-  const vars: Record<string, string> = {};
-
-  if (font) {
-    vars.fontFamily = `"${font}", sans-serif`;
-  }
-
-  if (!style) return vars as React.CSSProperties;
-
-  for (const [key, cssVar] of Object.entries(STYLE_VAR_MAP)) {
-    const value = style[key as keyof StyleOverrides];
-    if (value) {
-      vars[cssVar] = value;
-    }
-  }
-
-  return vars as React.CSSProperties;
 }
 
 /** Build per-action inline styles from action overrides */
