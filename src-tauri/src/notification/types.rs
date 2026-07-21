@@ -31,6 +31,21 @@ pub enum ProgressStyle {
     Ring,
 }
 
+/// How a notification is presented. `Card` is the existing top-right glass card.
+/// `Island` is the dynamic-island capsule (renders as a card until T4a).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Presentation {
+    Card,
+    Island,
+}
+
+impl Default for Presentation {
+    fn default() -> Self {
+        Self::Card
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Action {
@@ -179,6 +194,8 @@ pub struct NotificationPayload {
     #[serde(default)]
     pub priority: Priority,
     #[serde(default)]
+    pub presentation: Presentation,
+    #[serde(default)]
     pub timeout: Timeout,
     #[serde(default)]
     pub actions: Vec<Action>,
@@ -287,8 +304,42 @@ mod tests {
         assert_eq!(payload.sender, "ci");
         assert_eq!(payload.title, "Build passed");
         assert_eq!(payload.priority, Priority::Normal);
+        assert_eq!(payload.presentation, Presentation::Card);
         assert!(payload.actions.is_empty());
         assert!(!payload.id.is_empty());
+    }
+
+    #[test]
+    fn test_presentation_default_is_card() {
+        assert_eq!(Presentation::default(), Presentation::Card);
+    }
+
+    #[test]
+    fn test_presentation_serializes_lowercase() {
+        assert_eq!(serde_json::to_string(&Presentation::Card).unwrap(), "\"card\"");
+        assert_eq!(serde_json::to_string(&Presentation::Island).unwrap(), "\"island\"");
+    }
+
+    #[test]
+    fn test_presentation_deserializes_lowercase() {
+        let p: Presentation = serde_json::from_str("\"island\"").unwrap();
+        assert_eq!(p, Presentation::Island);
+    }
+
+    #[test]
+    fn test_payload_omitted_presentation_defaults_to_card() {
+        let json = r#"{ "sender": "ci", "title": "t", "body": "b" }"#;
+        let payload: NotificationPayload = serde_json::from_str(json).unwrap();
+        assert_eq!(payload.presentation, Presentation::Card);
+    }
+
+    #[test]
+    fn test_payload_presentation_island_roundtrips() {
+        let json = r#"{ "sender": "ci", "title": "t", "body": "b", "presentation": "island" }"#;
+        let payload: NotificationPayload = serde_json::from_str(json).unwrap();
+        assert_eq!(payload.presentation, Presentation::Island);
+        let reserialized = serde_json::to_string(&payload).unwrap();
+        assert!(reserialized.contains("\"presentation\":\"island\""));
     }
 
     #[test]

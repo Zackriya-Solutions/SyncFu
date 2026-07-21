@@ -15,8 +15,8 @@ use tower_http::cors::CorsLayer;
 
 use crate::notification::manager::NotificationManager;
 use crate::notification::types::{
-    Action, NotificationPayload, NotificationUpdate, Priority, ProgressInfo, StyleOverrides,
-    Timeout,
+    Action, NotificationPayload, NotificationUpdate, Presentation, Priority, ProgressInfo,
+    StyleOverrides, Timeout,
 };
 use crate::server::waiters::{WaitEvent, WaiterRegistry};
 use crate::server::webhook::{self, WebhookPayload, WebhookResult};
@@ -39,6 +39,8 @@ pub struct NotifyRequest {
     pub icon: Option<String>,
     #[serde(default = "default_priority")]
     pub priority: Priority,
+    #[serde(default)]
+    pub presentation: Presentation,
     #[serde(default)]
     pub timeout: Option<Timeout>,
     #[serde(default)]
@@ -130,6 +132,7 @@ async fn handle_notify(
         body: req.body,
         icon: req.icon,
         priority: req.priority,
+        presentation: req.presentation,
         timeout: req.timeout.unwrap_or_default(),
         actions: req.actions,
         progress: req.progress,
@@ -476,6 +479,7 @@ mod tests {
             body: "Body".to_string(),
             icon: None,
             priority: Priority::Normal,
+            presentation: Presentation::Card,
             timeout: Timeout::default(),
             actions: vec![],
             progress: None,
@@ -534,6 +538,7 @@ mod tests {
                 body: "Body".to_string(),
                 icon: None,
                 priority: Priority::Normal,
+                presentation: Presentation::Card,
                 timeout: Timeout::default(),
                 actions: vec![],
                 progress: None,
@@ -580,6 +585,7 @@ mod tests {
             body: "Original".to_string(),
             icon: None,
             priority: Priority::Normal,
+            presentation: Presentation::Card,
             timeout: Timeout::default(),
             actions: vec![],
             progress: None,
@@ -653,6 +659,7 @@ mod tests {
             body: "Body".to_string(),
             icon: None,
             priority: Priority::Normal,
+            presentation: Presentation::Card,
             timeout: Timeout::default(),
             actions: vec![],
             progress: None,
@@ -697,6 +704,7 @@ mod tests {
             body: "Body".to_string(),
             icon: None,
             priority: Priority::Normal,
+            presentation: Presentation::Card,
             timeout: Timeout::default(),
             actions: vec![],
             progress: None,
@@ -738,6 +746,7 @@ mod tests {
             body: "Done".to_string(),
             icon: None,
             priority: Priority::Normal,
+            presentation: Presentation::Card,
             timeout: Timeout::default(),
             actions: vec![Action {
                 id: "approve".to_string(),
@@ -844,6 +853,61 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_notify_default_presentation_is_card() {
+        let state = test_state();
+        let app = build_router(state.clone());
+
+        app.oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/notify")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&serde_json::json!({
+                        "sender": "test",
+                        "title": "Hello",
+                        "body": "World"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+        let active = state.manager.list_active().await;
+        assert_eq!(active[0].presentation, Presentation::Card);
+    }
+
+    #[tokio::test]
+    async fn test_notify_presentation_island_survives_boundary() {
+        let state = test_state();
+        let app = build_router(state.clone());
+
+        app.oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/notify")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&serde_json::json!({
+                        "sender": "test",
+                        "title": "Hello",
+                        "body": "World",
+                        "presentation": "island"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+        let active = state.manager.list_active().await;
+        assert_eq!(active[0].presentation, Presentation::Island);
+    }
+
+    #[tokio::test]
     async fn test_wait_nonexistent_returns_dismissed_immediately() {
         let app = build_router(test_state());
 
@@ -877,6 +941,7 @@ mod tests {
             body: "Body".to_string(),
             icon: None,
             priority: Priority::Normal,
+            presentation: Presentation::Card,
             timeout: Timeout::default(),
             actions: vec![],
             progress: None,
@@ -930,6 +995,7 @@ mod tests {
             body: "Done".to_string(),
             icon: None,
             priority: Priority::Normal,
+            presentation: Presentation::Card,
             timeout: Timeout::default(),
             actions: vec![Action {
                 id: "approve".to_string(),
@@ -995,6 +1061,7 @@ mod tests {
             body: "Body".to_string(),
             icon: None,
             priority: Priority::Normal,
+            presentation: Presentation::Card,
             timeout: Timeout::default(),
             actions: vec![],
             progress: None,
@@ -1039,6 +1106,7 @@ mod tests {
                 body: "Body".to_string(),
                 icon: None,
                 priority: Priority::Normal,
+                presentation: Presentation::Card,
                 timeout: Timeout::default(),
                 actions: vec![],
                 progress: None,
