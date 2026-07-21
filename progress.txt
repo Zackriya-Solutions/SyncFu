@@ -273,3 +273,11 @@ world - newest data point for the A1 finding).
   rewording queued as PRD amendment for T10. F3 noted - T6 owns closing A4.
 - T5a MERGE: conflict map executed (props union, core.invoke rewrite, css union WITH the extra
   @keyframes closing brace - the silent trap). tsc + 155 vitest green; playwright verifying.
+- DISK BLOCKER RESOLVED (user): freed to 30Gi; orchestrator removed the 13 merged worktrees per
+  user instruction (branches preserved; t5b kept until merged). T5b review re-dispatched.
+- T5b REVIEW: core CLEAN (all invariants hold; card notification:update wiring adjudicated as
+  spec-aligned latent-bug fix - PR note queued). 3 mechanical fixes applied by orchestrator (atomic
+  mid-flight assertion, light-mode track visibility, mini-ring r=9). 175/175 green. MERGED (14/17).
+  Reviewer's baseline-environment observation noted for T11/CI (visual baselines are
+  machine-sensitive; canonical runner needed).
+- T6 Model B dispatching (last feature task).
