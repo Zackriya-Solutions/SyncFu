@@ -2,29 +2,25 @@ import type { NotificationPayload } from "@/types/notification";
 import { NotificationIcon } from "@/components/overlay/NotificationIcon";
 import { RelativeTime } from "@/components/overlay/RelativeTime";
 import { useGoogleFont } from "@/hooks/useGoogleFont";
-import { buildStyleVars } from "@/lib/styleVars";
 
 // Expanded card content for the island: icon / mono sender / title / body.
-// Reuses the SAME `buildStyleVars` map, `NotificationIcon`, and `RelativeTime`
-// as NotificationCard so the 27 `--s-*` overrides resolve identically in card
-// and island (invariant c). No morph or lifecycle here (T4b/T5b) - pure render.
+// Reuses the SAME `NotificationIcon` and `RelativeTime` as NotificationCard. The
+// 27 `--s-*` overrides are published on the `.di-island` root (Island.tsx) so
+// they reach both the SVG path and this content, resolving identically to the
+// card (invariant c). No morph or lifecycle here (T4b/T5b) - pure render.
 
 interface IslandExpandedProps {
   readonly notification: NotificationPayload;
 }
 
 export function IslandExpanded({ notification }: IslandExpandedProps) {
-  const { sender, title, body, icon, font, createdAt, style } = notification;
+  const { sender, title, body, icon, font, createdAt } = notification;
 
   // Load a custom Google font when requested, exactly as the card does.
   useGoogleFont(font);
 
-  // Shared style map: every provided override becomes the same `--s-*` custom
-  // property it does on the card (invariant c). Consumed by island.css.
-  const styleVars = buildStyleVars(style, font);
-
   return (
-    <div className="di-expanded" data-testid="island-expanded" style={styleVars}>
+    <div className="di-expanded" data-testid="island-expanded">
       <div className="di-erow">
         {icon && (
           <div className="di-icon">

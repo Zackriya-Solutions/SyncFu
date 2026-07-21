@@ -67,27 +67,40 @@ describe("Island", () => {
     expect(path?.getAttribute("fill")).toBe("#000000");
   });
 
-  it("wires the expanded surface fill to the shared --s-card-bg override", () => {
+  it("wires the expanded surface fill to the shared --s-card-bg override reaching the path", () => {
+    // The path reads `var(--s-card-bg, ...)` and the override is published on the
+    // `.di-island` root, the path's ancestor, so the cardBg override reaches it
+    // (invariant c). We assert the structural wiring here: the path references the
+    // var AND the ancestor carries the override value. The actual COMPUTED pixel
+    // fill under an override is asserted in the Playwright styled-27 baseline
+    // (island-render.spec.ts), because jsdom does not resolve `var()` inside the
+    // SVG `fill` attribute.
+    const style: StyleOverrides = { cardBg: "rgba(16,185,129,0.96)" };
     const { container } = render(
-      <Island notification={makeNotification()} state="expanded" />
+      <Island notification={makeNotification({ style })} state="expanded" />
     );
+    const island = container.querySelector(".di-island") as HTMLElement;
     const path = container.querySelector(".di-shape path");
-    // Expanded honors the shared override var (invariant c), unlike compact.
     expect(path?.getAttribute("fill")).toContain("--s-card-bg");
+    // The override lands on the common ancestor, so it is in scope for the path.
+    expect(island.style.getPropertyValue("--s-card-bg")).toBe("rgba(16,185,129,0.96)");
   });
 
-  it("applies the 27 --s-* overrides via the shared styleVars map (invariant c)", () => {
+  it("applies the 27 --s-* overrides via the shared styleVars map on the island root (invariant c)", () => {
     const style: StyleOverrides = {
       titleColor: "#ff00ff",
       bodyColor: "#00ffff",
       accentColor: "#123456",
     };
-    render(<Island notification={makeNotification({ style })} state="expanded" />);
-    const expanded = screen.getByTestId("island-expanded");
-    // buildStyleVars (shared with the card) sets each override as its --s-* prop.
-    expect(expanded.style.getPropertyValue("--s-title-color")).toBe("#ff00ff");
-    expect(expanded.style.getPropertyValue("--s-body-color")).toBe("#00ffff");
-    expect(expanded.style.getPropertyValue("--s-accent-color")).toBe("#123456");
+    const { container } = render(
+      <Island notification={makeNotification({ style })} state="expanded" />
+    );
+    // buildStyleVars (shared with the card) sets each override as its --s-* prop on
+    // the `.di-island` root, from where it cascades to both the path and content.
+    const island = container.querySelector(".di-island") as HTMLElement;
+    expect(island.style.getPropertyValue("--s-title-color")).toBe("#ff00ff");
+    expect(island.style.getPropertyValue("--s-body-color")).toBe("#00ffff");
+    expect(island.style.getPropertyValue("--s-accent-color")).toBe("#123456");
   });
 
   it("insets content horizontally by the wall padding (R-WALL)", () => {

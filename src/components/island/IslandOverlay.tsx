@@ -4,17 +4,25 @@ import { useNotifications } from "@/hooks/useNotifications";
 import { Island } from "./Island";
 
 // Per-window host for the `island` webview. Reuses the SAME `useNotifications`
-// ingest as the overlay (single ingest, two renderers; R-HISTORY / invariant e):
-// backend `manager.add()` writes history for BOTH presentations before routing,
-// so nothing about history is island-specific here.
+// ingest as the overlay (single ingest, two renderers): whatever history wiring
+// lands applies to both presentations at that shared ingest, not here.
+//
+// History status (honest state): history persistence is a T10 concern and is
+// currently UNWIRED for every presentation - `historyStore.prependEntry` has no
+// production caller and backend `manager.add()` writes no history. The island is
+// not special: once history is wired at the shared ingest, the island inherits it
+// for free. Do NOT wire history in this component.
 //
 // Event routing (from T3): island `notification:add` arrives via
-// `emit_to("island", ...)`; `card` adds are broadcast and ALSO reach this window,
-// so we filter `presentation === "island"` as defense in depth (guard G1: the
-// island renders island items only, never card items).
+// `emit_to("island", ...)`. As defense in depth we ingest only island items (see
+// the `useNotifications` predicate below) and additionally filter the render to
+// `presentation === "island"` (guard G1: the island renders island items only).
 
 export function IslandOverlay() {
-  const { notifications } = useNotifications();
+  // Ingest ONLY island items into this window's shared store. Broadcast `card`
+  // adds reach this window too; dropping them at ingest keeps them from consuming
+  // MAX_VISIBLE slots and starving an island notification into the queue.
+  const { notifications } = useNotifications((n) => n.presentation === "island");
 
   // Transparent window background (same Cap pattern as the overlay panel).
   useEffect(() => {

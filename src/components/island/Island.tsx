@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import type { NotificationPayload } from "@/types/notification";
 import { notchPath, RADII, wallPadding } from "@/lib/notchPath";
+import { buildStyleVars } from "@/lib/styleVars";
 import { IslandCompact } from "./IslandCompact";
 import { IslandExpanded } from "./IslandExpanded";
 
@@ -63,6 +64,12 @@ export function Island({ notification, state }: IslandProps) {
 
   const d = notchPath({ W, H, t, b });
   const fill = expanded ? EXPANDED_FILL : COMPACT_FILL;
+  // The 27 `--s-*` overrides must be in scope for the inline SVG path (which reads
+  // `var(--s-card-bg, ...)`) AND the content. The path is `.di-island > svg > path`
+  // and the content is `.di-island > .di-content > ...`, so the ONLY common
+  // ancestor is `.di-island`. Set the shared vars here (invariant c). Compact keeps
+  // its hardcoded #000000 fill and never reads these (invariant d).
+  const styleVars = buildStyleVars(notification.style, notification.font);
   // R-WALL: content padding derives from the shoulder inset (`t`), never letting
   // text/icons cross the concave shoulder. Published as `--di-wall` for parity.
   const padX = wallPadding(t, expanded ? "card" : "compact");
@@ -76,7 +83,7 @@ export function Island({ notification, state }: IslandProps) {
       className="di-island"
       data-testid="island"
       data-state={state}
-      style={{ ...sizeStyle, ["--di-wall" as string]: `${t}px` }}
+      style={{ ...styleVars, ...sizeStyle, ["--di-wall" as string]: `${t}px` }}
     >
       <svg
         className="di-shape"

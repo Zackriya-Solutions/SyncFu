@@ -44,8 +44,14 @@ test("compact renders the pure-black pill anatomy", async ({ page }) => {
 
 test("styled-27 fixture wires overrides onto the expanded surface", async ({ page }) => {
   const expanded = page.locator("#cell-expanded-styled-27 .di-expanded");
-  // The shared --s-* map resolves on the island node (invariant c).
+  // The shared --s-* map is published on the .di-island root and inherits down to
+  // the content node (invariant c).
   await expect(expanded).toHaveCSS("--s-title-color", "#fdf4ff");
+  // The cardBg override must reach the SVG PATH (the surface), not just the
+  // content. The path reads var(--s-card-bg), and the override lives on the
+  // .di-island ancestor, so the computed fill resolves to the saturated green.
+  const path = page.locator("#cell-expanded-styled-27 .di-shape path");
+  await expect(path).toHaveCSS("fill", "rgba(16, 185, 129, 0.96)");
 });
 
 // NOTCH-OVERHANG CHECK: the tall card grows downward and is never clipped by our

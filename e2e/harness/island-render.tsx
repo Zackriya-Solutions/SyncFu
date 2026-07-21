@@ -40,7 +40,10 @@ function base(overrides: Partial<NotificationPayload>): NotificationPayload {
 // island exactly as it does on the card (invariant c).
 const STYLE_27: StyleOverrides = {
   accentColor: "#c084fc",
-  cardBg: "rgba(30,12,45,0.96)",
+  // Saturated green (deliberately distinct from the default frosted charcoal) so
+  // the cardBg override is unmistakably visible on the island surface in the
+  // snapshot, proving it reaches the SVG path via the `.di-island` root.
+  cardBg: "rgba(16,185,129,0.96)",
   cardBorderRadius: "20px",
   iconColor: "#f0abfc",
   iconBg: "rgba(192,132,252,0.18)",

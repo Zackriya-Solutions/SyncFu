@@ -70,11 +70,12 @@ describe("IslandOverlay", () => {
     expect(screen.queryByTestId("island-expanded")).not.toBeInTheDocument();
   });
 
-  it("ingests island notifications through the shared store (invariant e)", async () => {
-    // Single ingest: the island reuses useNotifications -> notificationStore,
-    // the same path the card uses. History persistence is backend-side
-    // (manager.add), presentation-agnostic, so a notification reaching this
-    // store is proof it flowed through the shared ingest.
+  it("ingests island notifications through the shared notificationStore", async () => {
+    // Single shared ingest: the island reuses useNotifications -> notificationStore,
+    // the same store the card uses. An island payload emitted on notification:add
+    // reaching this store is proof it flowed through that shared ingest. (This does
+    // NOT assert history persistence, which is unwired for all presentations - a
+    // T10 concern - so we make no claim about it here.)
     render(<IslandOverlay />);
 
     await waitFor(() => {
@@ -87,6 +88,36 @@ describe("IslandOverlay", () => {
 
     expect(useNotificationStore.getState().notifications).toHaveLength(1);
     expect(screen.getByText("Ingested")).toBeInTheDocument();
+  });
+
+  it("still renders the island when 6+ active card broadcasts arrive (no starvation)", async () => {
+    // Card adds are broadcast and reach the island window too. If they entered
+    // this window's store they would fill MAX_VISIBLE (5) slots and push a later
+    // island item into the queue, rendering nothing. The ingest predicate drops
+    // card payloads BEFORE the store, so the island always has room to render.
+    render(<IslandOverlay />);
+
+    await waitFor(() => {
+      expect(useNotificationStore.getState().notifications).toHaveLength(0);
+    });
+
+    act(() => {
+      for (let i = 0; i < 6; i++) {
+        emitMockEvent(
+          "notification:add",
+          makeNotification({ id: `card-${i}`, title: `Card ${i}`, presentation: "card" })
+        );
+      }
+      emitMockEvent(
+        "notification:add",
+        makeNotification({ id: "isl-survivor", title: "Survives", presentation: "island" })
+      );
+    });
+
+    // Only the island item entered the store; the 6 cards were dropped at ingest.
+    expect(useNotificationStore.getState().notifications).toHaveLength(1);
+    expect(screen.getByText("Survives")).toBeInTheDocument();
+    expect(screen.getByTestId("island-expanded")).toBeInTheDocument();
   });
 
   it("hides the island window when it holds no island notification", async () => {
