@@ -308,3 +308,9 @@ world - newest data point for the A1 finding).
   `cargo run -p syncfu-cli` or CARGO_BIN_EXE, and the release checklist gets a note. Reviewer's
   stray app launch killed.
 - T11 dispatching - the final task.
+- T11 RETURNED: journey 20/20 green against the REAL stack (real CLI x real http/manager/waiters on
+  ephemeral port; app spawn blocked by hardcoded :9868 held by user's live app - degraded honestly
+  via journey_server.rs example harness reusing production APIs). All exit codes + A4 3-waiter
+  routing + Model B ranking + card regression PASS. Zero functional defects on first live run.
+  Gaps reported: F1 no HTTP snapshot surface (probe route used); F2 SYNCFU_PORT env override would
+  make the app CI-spawnable. RELEASE-CHECKLIST.md written. Commit 78a02f0. Final review dispatched.
