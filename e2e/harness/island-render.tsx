@@ -127,6 +127,38 @@ const FIXTURES: readonly Fixture[] = [
     state: "expanded",
     notification: base({ title: "Long release notes", body: LONG_BODY + " " + LONG_BODY, icon: "rocket" }),
   },
+  {
+    // T5b progress: expanded BAR. Value stays within the 72..560 content range
+    // (T4b edge note) so the settled shape never hits the floor/cap handoff jump.
+    id: "expanded-progress-bar",
+    state: "expanded",
+    notification: base({
+      title: "Building project",
+      body: "Compiling 428 modules",
+      icon: "package",
+      progress: { value: 0.62, label: "compiling", style: "bar" },
+    }),
+  },
+  {
+    // T5b progress: expanded RING (real SVG dash arc, not a bar).
+    id: "expanded-progress-ring",
+    state: "expanded",
+    notification: base({
+      title: "Uploading build",
+      body: "artifact.tar.gz",
+      icon: "cloud-upload",
+      progress: { value: 0.75, label: "3.1 MB/s", style: "ring" },
+    }),
+  },
+  {
+    // T5b compact live-activity: the trailing mini-ring + percent.
+    id: "compact-progress",
+    state: "compact",
+    notification: base({
+      sender: "claude-code · building",
+      progress: { value: 0.4, style: "bar" },
+    }),
+  },
 ];
 
 const root = document.getElementById("root")!;

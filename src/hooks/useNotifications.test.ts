@@ -118,7 +118,7 @@ describe("useNotifications", () => {
     const { result } = renderHook(() => useNotifications());
 
     await vi.waitFor(() => {
-      expect(tauriEvent.listen).toHaveBeenCalledTimes(3);
+      expect(tauriEvent.listen).toHaveBeenCalledTimes(4);
     });
 
     const payload = makeNotification({ id: "event-1", title: "From Event" });
@@ -139,7 +139,7 @@ describe("useNotifications", () => {
     const { result } = renderHook(() => useNotifications());
 
     await vi.waitFor(() => {
-      expect(tauriEvent.listen).toHaveBeenCalledTimes(3);
+      expect(tauriEvent.listen).toHaveBeenCalledTimes(4);
     });
 
     act(() => {
@@ -160,7 +160,7 @@ describe("useNotifications", () => {
     const { result } = renderHook(() => useNotifications());
 
     await vi.waitFor(() => {
-      expect(tauriEvent.listen).toHaveBeenCalledTimes(3);
+      expect(tauriEvent.listen).toHaveBeenCalledTimes(4);
     });
 
     act(() => {
@@ -170,17 +170,72 @@ describe("useNotifications", () => {
     expect(result.current.notifications).toHaveLength(0);
   });
 
+  it("subscribes to notification:update events on mount", async () => {
+    renderHook(() => useNotifications());
+
+    await vi.waitFor(() => {
+      expect(tauriEvent.listen).toHaveBeenCalledWith(
+        "notification:update",
+        expect.any(Function)
+      );
+    });
+  });
+
+  it("applies a progress update when notification:update fires (Update flow)", async () => {
+    useNotificationStore.getState().add(
+      makeNotification({
+        id: "prog-1",
+        progress: { value: 0.2, style: "bar" },
+      })
+    );
+
+    const { result } = renderHook(() => useNotifications());
+
+    await vi.waitFor(() => {
+      expect(tauriEvent.listen).toHaveBeenCalledTimes(4);
+    });
+
+    // Backend event shape: { id, update: { body?, progress? } }.
+    act(() => {
+      emitMockEvent("notification:update", {
+        id: "prog-1",
+        update: { progress: { value: 0.7, label: "70%", style: "bar" } },
+      });
+    });
+
+    const updated = result.current.notifications[0];
+    expect(updated.progress?.value).toBe(0.7);
+    expect(updated.progress?.label).toBe("70%");
+  });
+
+  it("ignores a malformed notification:update payload", async () => {
+    useNotificationStore.getState().add(makeNotification({ id: "keep-1" }));
+    const { result } = renderHook(() => useNotifications());
+
+    await vi.waitFor(() => {
+      expect(tauriEvent.listen).toHaveBeenCalledTimes(4);
+    });
+
+    // Missing id / update must be a no-op, never a throw.
+    act(() => {
+      emitMockEvent("notification:update", { id: "", update: undefined });
+    });
+
+    expect(result.current.notifications).toHaveLength(1);
+    expect(result.current.notifications[0].id).toBe("keep-1");
+  });
+
   it("cleans up listeners on unmount", async () => {
     const { unmount } = renderHook(() => useNotifications());
 
     await vi.waitFor(() => {
-      expect(tauriEvent.listen).toHaveBeenCalledTimes(3);
+      expect(tauriEvent.listen).toHaveBeenCalledTimes(4);
     });
 
     unmount();
 
     // After unmount, events should not affect the store
     // (listeners were removed)
-    expect(tauriEvent.listen).toHaveBeenCalledTimes(3);
+    expect(tauriEvent.listen).toHaveBeenCalledTimes(4);
   });
 });

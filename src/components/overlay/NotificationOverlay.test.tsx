@@ -125,7 +125,7 @@ describe("NotificationOverlay", () => {
     render(<NotificationOverlay />);
 
     await waitFor(() => {
-      expect(tauriEvent.listen).toHaveBeenCalledTimes(3);
+      expect(tauriEvent.listen).toHaveBeenCalledTimes(4);
     });
 
     const payload = makeNotification({ id: "event-1", title: "From Event" });
@@ -145,7 +145,7 @@ describe("NotificationOverlay", () => {
     render(<NotificationOverlay />);
 
     await waitFor(() => {
-      expect(tauriEvent.listen).toHaveBeenCalledTimes(3);
+      expect(tauriEvent.listen).toHaveBeenCalledTimes(4);
     });
 
     act(() => {
@@ -166,7 +166,7 @@ describe("NotificationOverlay", () => {
     render(<NotificationOverlay />);
 
     await waitFor(() => {
-      expect(tauriEvent.listen).toHaveBeenCalledTimes(3);
+      expect(tauriEvent.listen).toHaveBeenCalledTimes(4);
     });
 
     act(() => {
@@ -189,7 +189,7 @@ describe("NotificationOverlay", () => {
     const { unmount } = render(<NotificationOverlay />);
 
     await waitFor(() => {
-      expect(tauriEvent.listen).toHaveBeenCalledTimes(3);
+      expect(tauriEvent.listen).toHaveBeenCalledTimes(4);
     });
 
     unmount();

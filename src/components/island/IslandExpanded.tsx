@@ -1,10 +1,15 @@
 import type { CSSProperties } from "react";
-import type { ActionStyle, NotificationPayload } from "@/types/notification";
+import type {
+  ActionStyle,
+  NotificationPayload,
+  ProgressInfo,
+} from "@/types/notification";
 import { NotificationIcon } from "@/components/overlay/NotificationIcon";
 import { RelativeTime } from "@/components/overlay/RelativeTime";
 import { useGoogleFont } from "@/hooks/useGoogleFont";
 import { resolveTimeout } from "@/lib/timeout";
 import { buildActionStyle } from "@/lib/actionStyle";
+import { progressPercent, ringDash } from "@/lib/progress";
 
 // Expanded card content for the island: icon / mono sender / title / body, plus
 // (T5a) the action buttons and the auto-dismiss countdown - functional parity
@@ -29,6 +34,65 @@ const ACTION_CLASS: Record<ActionStyle, string> = {
   danger: "di-btn2 danger",
 };
 
+/** Big-ring radius in the shared 24x24 viewBox (sized via CSS). */
+const RING_R = 10;
+
+/** Progress render (T5b): a bar (default) or a real ring per the payload's
+ *  ProgressStyle, mirroring the mockup's `.ex-progress` / `.ring-wrap` anatomy.
+ *  Colors honor the shared `--s-progress-*` overrides (invariant c parity with the
+ *  card). The fill is a declarative width / stroke-dashoffset (CSS-eased, no rAF -
+ *  R-PERF). A value change never resizes the OS frame (D3); the content height is
+ *  unchanged so the morph loop rests. */
+function IslandProgress({ progress }: { progress: ProgressInfo }) {
+  const pct = progressPercent(progress.value);
+  if (progress.style === "ring") {
+    const { dashArray, dashOffset } = ringDash(progress.value, RING_R);
+    return (
+      <div className="di-ring-wrap" data-testid="island-progress" data-style="ring">
+        <svg
+          className="di-ring"
+          viewBox="0 0 24 24"
+          role="progressbar"
+          aria-valuenow={pct}
+          aria-valuemin={0}
+          aria-valuemax={100}
+        >
+          <circle className="di-ring-track" cx="12" cy="12" r={RING_R} />
+          <circle
+            className="di-ring-fill"
+            cx="12"
+            cy="12"
+            r={RING_R}
+            strokeDasharray={dashArray}
+            strokeDashoffset={dashOffset}
+          />
+        </svg>
+        <div className="di-ring-meta">
+          <div className="di-ring-pct">{pct}%</div>
+          {progress.label && <div className="di-ring-label">{progress.label}</div>}
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="di-progress" data-testid="island-progress" data-style="bar">
+      <div
+        className="di-pbar"
+        role="progressbar"
+        aria-valuenow={pct}
+        aria-valuemin={0}
+        aria-valuemax={100}
+      >
+        <i className="di-pbar-fill" style={{ width: `${pct}%` }} />
+      </div>
+      <div className="di-plabel">
+        <span>{progress.label ?? "working"}</span>
+        <span>{pct}%</span>
+      </div>
+    </div>
+  );
+}
+
 interface IslandExpandedProps {
   readonly notification: NotificationPayload;
   /** Reuses the card's action path: host wires this to `action_callback`. */
@@ -36,8 +100,19 @@ interface IslandExpandedProps {
 }
 
 export function IslandExpanded({ notification, onAction }: IslandExpandedProps) {
-  const { id, sender, title, body, icon, font, createdAt, actions, priority, timeout } =
-    notification;
+  const {
+    id,
+    sender,
+    title,
+    body,
+    icon,
+    font,
+    createdAt,
+    actions,
+    priority,
+    timeout,
+    progress,
+  } = notification;
 
   // Load a custom Google font when requested, exactly as the card does.
   useGoogleFont(font);
@@ -66,6 +141,8 @@ export function IslandExpanded({ notification, onAction }: IslandExpandedProps) 
           {body && <div className="di-msg">{body}</div>}
         </div>
       </div>
+
+      {progress && <IslandProgress progress={progress} />}
 
       {isDecision && (
         <div className="di-actions2" data-testid="island-actions">

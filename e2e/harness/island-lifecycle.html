@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Dynamic Island lifecycle harness</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: linear-gradient(160deg, #2a2140 0%, #1a2740 45%, #122033 100%);
+      }
+      /* The island-root is fixed inset:0 (the OS window envelope). Keeping the body
+         at 100vh means its box == the viewport, so a spec can assert the "frame"
+         never resizes while the inner capsule morphs (D3). */
+      body {
+        min-height: 100vh;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./island-lifecycle.tsx"></script>
+  </body>
+</html>

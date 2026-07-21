@@ -35,6 +35,36 @@ import { IslandExpanded } from "./IslandExpanded";
 // Lifecycle (OQ-2 ratified): arrive EXPANDED, hold, then auto-collapse to the
 // compact live pill. `--wait` items stay expanded until answered (T5b). The
 // imperative handle (expand/collapse) is the trigger surface T5 drives.
+//
+// LIFECYCLE STATE MACHINE (T5b, completeness gate - 04-risk S1 / 02-arch S7).
+// The machine spans two owners; every interruption cell below is defined:
+//
+//   hidden    - NO Island mounted. Owned by IslandOverlay (renders `islandItems[0]`
+//               only when present; hides the window when empty). "last dismissed ->
+//               hidden" and "arrival -> present" live there.
+//   compact   - renderState "compact": the live pill. `notification.progress`
+//               drives the trailing live-activity ring, refreshed in place by the
+//               Update flow even after collapse (invariant d).
+//   expanded  - renderState "expanded": the full card (bar/ring progress + actions).
+//   morphing  - transient: the controller's rAF springs are non-resting between
+//               compact<->expanded. Not a React state (React never tracks frames -
+//               the controller does); `data-state` is the TARGET, and the loop
+//               self-parks at rest (T4b A6). dispose() cancels it on unmount/close.
+//   list-open - T6 SEAM (>1 island item -> ranked list). NOT built here; IslandOverlay
+//               renders a single item and marks where the list will mount.
+//
+// Interruption transitions handled here:
+//   arrival (hidden)            -> present expanded (C4 arrive-expanded, IslandOverlay)
+//   hold elapses (expanded)     -> animate to compact (auto-collapse below)
+//   --wait decision (any)       -> forced/held expanded, auto-collapse+dismiss OFF
+//   progress update (compact)   -> refresh pill live-activity, no frame resize (D3)
+//   progress update (expanded)  -> refresh card in place, no remount, no frame resize
+//   new distinct notif (morphing/any) -> LATEST-WINS re-present: IslandOverlay's
+//               `key={id}` remounts to the new item (snap expanded) and the old
+//               controller disposes its rAF, so there is never a half-morph.
+//   dismissed (any)             -> IslandOverlay drops it -> hidden; dispose() cancels
+//               any in-flight morph (also the monitor-change teardown path, T9 owns
+//               the window recreation; here it is frontend cancel ordering only).
 
 export type { IslandState };
 

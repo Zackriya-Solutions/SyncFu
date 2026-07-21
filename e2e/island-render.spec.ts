@@ -19,6 +19,9 @@ const FIXTURES = [
   "expanded-styled-27",
   "expanded-actions",
   "expanded-tall",
+  "expanded-progress-bar",
+  "expanded-progress-ring",
+  "compact-progress",
 ] as const;
 
 test.beforeEach(async ({ page }) => {
@@ -80,6 +83,29 @@ test("timed non-decision renders a running countdown", async ({ page }) => {
   await expect(
     page.locator("#cell-expanded-basic .di-countdown-fill.running")
   ).toBeVisible();
+});
+
+// T5b progress: the expanded bar fill honors the shared --s-progress-color (here
+// the default accent) and the ring is a real SVG dash arc; the compact pill shows
+// a trailing mini-ring live-activity.
+test("expanded progress bar renders a filled bar with the percent label", async ({ page }) => {
+  const cell = page.locator("#cell-expanded-progress-bar");
+  await expect(cell.locator(".di-pbar-fill")).toBeVisible();
+  await expect(cell.locator(".di-plabel")).toContainText("62%");
+  await expect(cell.locator('[role="progressbar"]')).toHaveAttribute("aria-valuenow", "62");
+});
+
+test("expanded progress ring renders an SVG dash arc, not a bar", async ({ page }) => {
+  const cell = page.locator("#cell-expanded-progress-ring");
+  await expect(cell.locator(".di-ring-fill")).toBeVisible();
+  await expect(cell.locator(".di-pbar")).toHaveCount(0);
+  await expect(cell.locator(".di-ring-pct")).toContainText("75%");
+});
+
+test("compact pill renders a trailing live-activity mini-ring", async ({ page }) => {
+  const cell = page.locator("#cell-compact-progress");
+  await expect(cell.locator(".di-mini-ring")).toBeVisible();
+  await expect(cell.locator(".di-mini-pct")).toContainText("40%");
 });
 
 // NOTCH-OVERHANG CHECK: the tall card grows downward and is never clipped by our
