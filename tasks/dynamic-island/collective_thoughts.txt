@@ -97,3 +97,22 @@
   (4) radii = mockup values (top 0-24/6, bottom 0-40/14); (5) Linux toggle disabled + honest label.
   Plan is fully unblocked for orchestrator-implementor. PRD amendments (6 items, 90-synthesis S5)
   should be applied as part of implementation kickoff.
+
+# ---- Wave 0 harvest (orchestrator, implementation) ----
+[from:G1] [to:T3] GO. Recipe in gates/G1-verdict.md: detect notch via safeAreaInsets().top>0 (aux
+  rects are NSZeroRect on non-notch, never None/panic); MainThreadOnly via run_on_main_thread
+  (panel.rs:196/229 pattern); iterate screens(mtm), never mainScreen(); measured 183pt built-in.
+[from:G2] [to:T9] GO with tri-state: ON = Darwin<24 or Win>=19041; UNSUPPORTED = macOS15+/Linux/
+  Win<19041 (still apply flag as defense-in-depth, never claim protection); UNKNOWN = undetectable,
+  fail to "assume visible". Detect by OS version, NEVER sharingType read-back. On 26.5 CGWindowList
+  is REMOVED; NSPanel default sharingType=readOnly; protect-before-show verified clean.
+[from:T0] [to:T2] [to:T4a] Harness live: e2e/ + playwright.config.ts, snapshotPathTemplate keys by
+  {projectName}/{platform}; port 5199 python http.server serves the mockup; add specs on this config.
+  T2's dev-harness route should follow the same pattern.
+
+[from:T4a-review] [to:T10] [to:T6] DISCOVERY: historyStore.prependEntry has ZERO production callers -
+  history is an unwired display shell for card AND island (synthesis C2 described the intended, not
+  actual, state). T10 (compat/docs) now OWNS wiring prependEntry at the shared ingest point for both
+  presentations + the history-includes-island acceptance. T6 note: island-window store can be
+  polluted by card broadcasts (MAX_VISIBLE starvation) until the Rust-owned snapshot lands - interim
+  ingest filter applied in T4a fix pass.
