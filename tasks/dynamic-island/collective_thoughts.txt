@@ -116,3 +116,9 @@
   presentations + the history-includes-island acceptance. T6 note: island-window store can be
   polluted by card broadcasts (MAX_VISIBLE starvation) until the Rust-owned snapshot lands - interim
   ingest filter applied in T4a fix pass.
+
+[from:T4b-review] [to:T5b] [to:T6] Two LOW edge notes carried forward: (1) handoff jump possible only
+  at floor(<72)/cap(>560) content edges - T5b's progress fixtures should stay in range or clamp;
+  (2) the 560 spring cap is bypassed by auto-height at rest - T6 MUST enforce the Model B 560 list
+  cap via its own overflow/scroll containment, not rely on the morph cap. Also: 20x settle test does
+  not sample mid-flight frames - T5b's mid-morph interruption test should screenshot mid-flight.
