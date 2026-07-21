@@ -146,11 +146,27 @@ async fn handle_notify(
 
     let id = state.manager.add(payload.clone()).await;
 
-    // Show panel and emit to frontend
+    // Show the target overlay window and emit to it, routed by presentation.
+    // Card: existing broadcast + top-right panel (byte-identical). Island: scoped to the island
+    // window so the panel never pops (FR-3) and never accumulates island state.
     if let Some(ref app) = state.app_handle {
-        crate::overlay::panel::show_panel(app);
         debug!("Emitting notification:add for id={id}");
-        match tauri::Emitter::emit(app, "notification:add", &payload) {
+        let emit = match crate::overlay::OverlayRoute::of(payload.presentation) {
+            crate::overlay::OverlayRoute::Panel => {
+                crate::overlay::panel::show_panel(app);
+                tauri::Emitter::emit(app, "notification:add", &payload)
+            }
+            crate::overlay::OverlayRoute::Island => {
+                crate::overlay::island::show_island(app);
+                tauri::Emitter::emit_to(
+                    app,
+                    crate::overlay::island::ISLAND_LABEL,
+                    "notification:add",
+                    &payload,
+                )
+            }
+        };
+        match emit {
             Ok(()) => info!("Notification emitted: id={id} sender={}", req_sender),
             Err(e) => error!("Failed to emit notification:add: {e}"),
         }
@@ -232,11 +248,11 @@ async fn handle_action(
 
     // Dismiss after action
     let dismissed = state.manager.dismiss(&id).await;
-    if dismissed.is_some() {
+    if let Some(ref notification) = dismissed {
         if let Some(ref app) = state.app_handle {
             let _ = tauri::Emitter::emit(app, "notification:dismiss", &id);
             if state.manager.active_count().await == 0 {
-                crate::overlay::panel::hide_panel(app);
+                crate::overlay::hide_for(app, notification.presentation);
             }
         }
     }
@@ -309,15 +325,15 @@ async fn handle_dismiss(
     debug!("Dismiss request for id={id}");
     let dismissed = state.manager.dismiss(&id).await;
 
-    if dismissed.is_some() {
+    if let Some(ref notification) = dismissed {
         // Notify waiting CLI clients
         state.waiters.notify(&id, WaitEvent::Dismissed).await;
 
         if let Some(ref app) = state.app_handle {
             let _ = tauri::Emitter::emit(app, "notification:dismiss", &id);
-            // Hide panel if no more active notifications
+            // Hide the hosting window if no more active notifications
             if state.manager.active_count().await == 0 {
-                crate::overlay::panel::hide_panel(app);
+                crate::overlay::hide_for(app, notification.presentation);
             }
         }
         info!("Notification dismissed: id={id}");
@@ -338,7 +354,9 @@ async fn handle_dismiss_all(
     let count = dismissed.len();
 
     if let Some(ref app) = state.app_handle {
+        // Broadcast dismissal hides both overlay windows.
         crate::overlay::panel::hide_panel(app);
+        crate::overlay::island::hide_island(app);
         let _ = tauri::Emitter::emit(app, "notification:dismiss-all", &count);
     }
 
@@ -905,6 +923,56 @@ mod tests {
 
         let active = state.manager.list_active().await;
         assert_eq!(active[0].presentation, Presentation::Island);
+    }
+
+    #[tokio::test]
+    async fn test_card_and_island_route_to_distinct_windows() {
+        use crate::overlay::OverlayRoute;
+        let state = test_state();
+        let app = build_router(state.clone());
+
+        // A card send and an island send through the real HTTP boundary.
+        for (title, presentation) in [("card-one", "card"), ("island-one", "island")] {
+            app.clone()
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/notify")
+                        .header("content-type", "application/json")
+                        .body(Body::from(
+                            serde_json::to_string(&serde_json::json!({
+                                "sender": "test",
+                                "title": title,
+                                "body": "b",
+                                "presentation": presentation
+                            }))
+                            .unwrap(),
+                        ))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+        }
+
+        let active = state.manager.list_active().await;
+        assert_eq!(active.len(), 2);
+
+        // Each notification routes to its own window: card -> overlay, island -> island.
+        // The island route is never the panel, so an island send never pops the top-right panel.
+        for n in &active {
+            let route = OverlayRoute::of(n.presentation);
+            match n.presentation {
+                Presentation::Card => {
+                    assert_eq!(route, OverlayRoute::Panel);
+                    assert_eq!(route.window_label(), "overlay");
+                }
+                Presentation::Island => {
+                    assert_eq!(route, OverlayRoute::Island);
+                    assert_eq!(route.window_label(), "island");
+                    assert_ne!(route, OverlayRoute::Panel);
+                }
+            }
+        }
     }
 
     #[tokio::test]

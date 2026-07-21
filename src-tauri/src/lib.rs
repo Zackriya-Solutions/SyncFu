@@ -27,10 +27,31 @@ async fn notify(
     app: tauri::AppHandle,
 ) -> Result<String, String> {
     let id = manager.add(payload.clone()).await;
-    overlay::panel::show_panel(&app);
-    app.emit("notification:add", &payload)
-        .map_err(|e| e.to_string())?;
+    route_show_and_emit(&app, &payload)?;
     Ok(id)
+}
+
+/// Show the target overlay window and emit `notification:add` to it, routed by presentation.
+///
+/// `Card` keeps the existing broadcast + panel path (byte-identical, invariant f). `Island` shows
+/// only the island and scopes the emit to the island window so the top-right panel never pops
+/// (FR-3) and the panel's frontend never accumulates island state.
+fn route_show_and_emit(
+    app: &tauri::AppHandle,
+    payload: &NotificationPayload,
+) -> Result<(), String> {
+    match overlay::OverlayRoute::of(payload.presentation) {
+        overlay::OverlayRoute::Panel => {
+            overlay::panel::show_panel(app);
+            app.emit("notification:add", payload)
+                .map_err(|e| e.to_string())
+        }
+        overlay::OverlayRoute::Island => {
+            overlay::island::show_island(app);
+            app.emit_to(overlay::island::ISLAND_LABEL, "notification:add", payload)
+                .map_err(|e| e.to_string())
+        }
+    }
 }
 
 #[tauri::command]
@@ -41,15 +62,15 @@ async fn dismiss_notification(
     app: tauri::AppHandle,
 ) -> Result<bool, String> {
     let dismissed = manager.dismiss(&id).await;
-    if dismissed.is_some() {
+    if let Some(ref notification) = dismissed {
         // Notify waiting CLI clients
         waiters.notify(&id, WaitEvent::Dismissed).await;
 
         app.emit("notification:dismiss", &id)
             .map_err(|e| e.to_string())?;
-        // Hide panel if no more active notifications
+        // Hide the hosting window if no more active notifications
         if manager.active_count().await == 0 {
-            overlay::panel::hide_panel(&app);
+            overlay::hide_for(&app, notification.presentation);
         }
     }
     Ok(dismissed.is_some())
@@ -66,7 +87,9 @@ async fn dismiss_all(
 
     let dismissed = manager.dismiss_all().await;
     let count = dismissed.len();
+    // Broadcast dismissal hides both overlay windows.
     overlay::panel::hide_panel(&app);
+    overlay::island::hide_island(&app);
     app.emit("notification:dismiss-all", &count)
         .map_err(|e| e.to_string())?;
     Ok(count)
@@ -148,11 +171,11 @@ async fn action_callback(
 
     // Dismiss after action regardless of webhook result
     let dismissed = manager.dismiss(&notification_id).await;
-    if dismissed.is_some() {
+    if let Some(ref notification) = dismissed {
         app.emit("notification:dismiss", &notification_id)
             .map_err(|e| e.to_string())?;
         if manager.active_count().await == 0 {
-            overlay::panel::hide_panel(&app);
+            overlay::hide_for(&app, notification.presentation);
         }
     }
 
@@ -184,9 +207,7 @@ async fn test_notify(
         created_at: chrono::Utc::now(),
     };
     let id = manager.add(payload.clone()).await;
-    overlay::panel::show_panel(&app);
-    app.emit("notification:add", &payload)
-        .map_err(|e| e.to_string())?;
+    route_show_and_emit(&app, &payload)?;
     Ok(id)
 }
 
@@ -277,6 +298,11 @@ pub fn run() {
             overlay::panel::create_panel(app.handle())
                 .expect("failed to create notification panel");
             info!("Notification panel created (hidden until first notification)");
+
+            // Create the dynamic-island window - top-center, hidden until an island notification.
+            overlay::island::create_island(app.handle())
+                .expect("failed to create island window");
+            info!("Island window created (hidden until first island notification)");
 
             // Start HTTP server on port 9868
             info!("Starting HTTP server on port 9868");

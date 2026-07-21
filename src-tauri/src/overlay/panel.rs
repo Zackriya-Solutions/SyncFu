@@ -16,6 +16,8 @@ use tauri_nspanel::ManagerExt;
 // - can_become_main_window: false (never becomes the main window)
 // - is_floating_panel: true (floats above regular windows)
 #[cfg(target_os = "macos")]
+pub(crate) const PANEL_LABEL: &str = "overlay";
+
 tauri_nspanel::tauri_panel! {
     panel!(NotificationPanel {
         config: {
@@ -112,7 +114,7 @@ fn create_macos_panel(
 ) -> Result<(), String> {
     use tauri_nspanel::PanelBuilder;
 
-    let _panel = PanelBuilder::<_, NotificationPanel>::new(app, "overlay")
+    let _panel = PanelBuilder::<_, NotificationPanel>::new(app, PANEL_LABEL)
         .url(tauri::WebviewUrl::App("index.html".into()))
         .level(tauri_nspanel::PanelLevel::Status)
         .no_activate(true)
@@ -156,7 +158,7 @@ fn create_standard_panel(
 ) -> Result<(), String> {
     let _window = tauri::WebviewWindowBuilder::new(
         app,
-        "overlay",
+        PANEL_LABEL,
         tauri::WebviewUrl::App("index.html".into()),
     )
     .transparent(true)
@@ -198,7 +200,7 @@ pub fn show_panel(app: &AppHandle) {
         // The underlying WebviewWindow is used for positioning on all platforms,
         // since NSPanel doesn't expose set_position directly.
         if let Some(pos) = position {
-            if let Some(window) = inner.get_webview_window("overlay") {
+            if let Some(window) = inner.get_webview_window(PANEL_LABEL) {
                 let _ = window.set_position(tauri::Position::Logical(
                     tauri::LogicalPosition::new(pos.x, pos.y),
                 ));
@@ -207,13 +209,13 @@ pub fn show_panel(app: &AppHandle) {
 
         #[cfg(target_os = "macos")]
         {
-            if let Ok(panel) = inner.get_webview_panel("overlay") {
+            if let Ok(panel) = inner.get_webview_panel(PANEL_LABEL) {
                 panel.show();
                 return;
             }
         }
 
-        if let Some(window) = inner.get_webview_window("overlay") {
+        if let Some(window) = inner.get_webview_window(PANEL_LABEL) {
             let _ = window.show();
         }
     });
@@ -229,13 +231,13 @@ pub fn hide_panel(app: &AppHandle) {
     let _ = handle.run_on_main_thread(move || {
         #[cfg(target_os = "macos")]
         {
-            if let Ok(panel) = inner.get_webview_panel("overlay") {
+            if let Ok(panel) = inner.get_webview_panel(PANEL_LABEL) {
                 panel.hide();
                 return;
             }
         }
 
-        if let Some(window) = inner.get_webview_window("overlay") {
+        if let Some(window) = inner.get_webview_window(PANEL_LABEL) {
             let _ = window.hide();
         }
     });
@@ -246,7 +248,7 @@ pub fn hide_panel(app: &AppHandle) {
 /// Iterates all available monitors and checks which one contains the
 /// current cursor position. Falls back to None if cursor position
 /// can't be determined or no monitor matches.
-fn get_cursor_monitor_info(app: &AppHandle) -> Option<MonitorInfo> {
+pub(crate) fn get_cursor_monitor_info(app: &AppHandle) -> Option<MonitorInfo> {
     let cursor_pos = get_cursor_position()?;
     let monitors = app.available_monitors().ok()?;
 
@@ -302,7 +304,7 @@ fn get_cursor_position() -> Option<(f64, f64)> {
 }
 
 /// Extract monitor info from the primary monitor (fallback).
-fn get_primary_monitor_info(app: &AppHandle) -> Option<MonitorInfo> {
+pub(crate) fn get_primary_monitor_info(app: &AppHandle) -> Option<MonitorInfo> {
     match app.primary_monitor() {
         Ok(Some(monitor)) => {
             let size = monitor.size();
