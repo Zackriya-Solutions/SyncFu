@@ -156,3 +156,19 @@ In a shared `CARGO_TARGET_DIR` the app can overwrite `target/debug/syncfu`.
 - [ ] `pnpm test:e2e` (Playwright harness) green on the macOS CI runner
 - [ ] Sections 2, 3, 4, 6 manual/per-OS items completed and checked
 - [ ] No spawned process left running (`ps aux | grep -Ei 'journey_server|debug/syncfu'` empty; the user's `/Applications/syncfu.app` instance is separate and stays up)
+
+### R6 - R-SSE-FALSE-DISMISS (inherited, pre-existing)
+A late `GET /wait` subscribe against a notification already resolved returns `Dismissed` (exit 1)
+even when it was resolved by an ACTION (`handle_wait` `!exists` path). Pre-existing, outside this
+feature's scope; flagged in T5a and by the T11 review. Owning follow-up: distinguish
+resolved-by-action from dismissed at the SSE boundary, or document exit-1-on-late-subscribe as the
+contract. Journey robustness note: the T11 assertions gate on `hasWaiter` before acting and on the
+`action_id` echo, so they cannot pass vacuously through this path.
+
+### Testability recommendations (from T11 findings F1/F2)
+- F1: no HTTP surface exposes the island snapshot (`get_island_snapshot` is IPC-only); the journey
+  uses a harness probe route reusing the production `manager.island_snapshot()`. Consider a
+  debug-gated HTTP probe for CI.
+- F2: the app hardcodes port 9868 (no env override), so the full app cannot be spawned while a
+  production instance runs. A `SYNCFU_PORT` env override (future, non-T11 change) would make the
+  complete app spawnable in CI and worktrees.
