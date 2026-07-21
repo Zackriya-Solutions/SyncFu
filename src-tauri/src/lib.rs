@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use log::{error, info};
 use notification::manager::NotificationManager;
+use notification::settings::{self, IslandSettings};
 use notification::types::{NotificationPayload, NotificationUpdate, Presentation, Priority, Timeout};
 use server::http::ServerState;
 use server::waiters::{WaitEvent, WaiterRegistry};
@@ -182,6 +183,50 @@ async fn action_callback(
     Ok(result)
 }
 
+/// Read the persistent island settings (D4), clamped. Missing/corrupt file yields defaults.
+#[tauri::command]
+async fn get_island_settings(app: tauri::AppHandle) -> Result<IslandSettings, String> {
+    let path = settings::settings_path(&app)?;
+    Ok(settings::load_settings(&path))
+}
+
+/// Persist island settings and push the change to the live island - never rebuilds the window (D3/G2).
+///
+/// The incoming settings are clamped (never trust IPC input), saved atomically, then applied in
+/// place: reflow only when a geometry field changed, re-apply capture protection only when the
+/// `hideFromScreenCapture` toggle changed, and emit `island:settings` scoped to the island window so
+/// the top-right panel never sees it. Returns the clamped settings so the caller mirrors what was
+/// stored. The notification payload schema is untouched (G12).
+#[tauri::command]
+async fn set_island_settings(
+    app: tauri::AppHandle,
+    settings: IslandSettings,
+) -> Result<IslandSettings, String> {
+    let path = settings::settings_path(&app)?;
+    let previous = settings::load_settings(&path);
+    let next = settings.clamped();
+
+    settings::save_settings(&path, &next)?;
+
+    if next.geometry_differs(&previous) {
+        overlay::island::reflow_island(&app);
+    }
+    if next.hide_from_screen_capture != previous.hide_from_screen_capture {
+        overlay::island::set_island_capture_protected(&app, next.hide_from_screen_capture);
+    }
+
+    app.emit_to(overlay::island::ISLAND_LABEL, "island:settings", &next)
+        .map_err(|e| e.to_string())?;
+    Ok(next)
+}
+
+/// Toggle whether the island window receives pointer events (in place, never rebuilds - D3/G2).
+#[tauri::command]
+async fn set_island_interactive(app: tauri::AppHandle, interactive: bool) -> Result<(), String> {
+    overlay::island::set_island_interactive(&app, interactive);
+    Ok(())
+}
+
 /// Send a test notification for manual testing during development.
 #[tauri::command]
 async fn test_notify(
@@ -285,6 +330,9 @@ pub fn run() {
             health,
             test_notify,
             action_callback,
+            get_island_settings,
+            set_island_settings,
+            set_island_interactive,
         ])
         .setup(|app| {
             info!("syncfu starting up");
