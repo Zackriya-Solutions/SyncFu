@@ -839,3 +839,21 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod capability_tests {
+    /// Regression guard for the blank-island ACL bug: the island webview's IPC
+    /// (event.listen, window.hide, invokes) is silently denied unless the window
+    /// is listed in the default capability. A missing entry renders the island
+    /// as an empty transparent envelope with a fully working backend.
+    #[test]
+    fn island_window_is_in_default_capability() {
+        let caps = include_str!("../../capabilities/default.json");
+        let parsed: serde_json::Value = serde_json::from_str(caps).unwrap();
+        let windows = parsed["windows"].as_array().unwrap();
+        assert!(
+            windows.iter().any(|w| w == "island"),
+            "capabilities/default.json must list the island window or its webview IPC is denied"
+        );
+    }
+}
