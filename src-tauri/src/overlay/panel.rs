@@ -246,7 +246,7 @@ pub fn hide_panel(app: &AppHandle) {
 /// Iterates all available monitors and checks which one contains the
 /// current cursor position. Falls back to None if cursor position
 /// can't be determined or no monitor matches.
-fn get_cursor_monitor_info(app: &AppHandle) -> Option<MonitorInfo> {
+pub(crate) fn get_cursor_monitor_info(app: &AppHandle) -> Option<MonitorInfo> {
     let cursor_pos = get_cursor_position()?;
     let monitors = app.available_monitors().ok()?;
 
@@ -302,7 +302,7 @@ fn get_cursor_position() -> Option<(f64, f64)> {
 }
 
 /// Extract monitor info from the primary monitor (fallback).
-fn get_primary_monitor_info(app: &AppHandle) -> Option<MonitorInfo> {
+pub(crate) fn get_primary_monitor_info(app: &AppHandle) -> Option<MonitorInfo> {
     match app.primary_monitor() {
         Ok(Some(monitor)) => {
             let size = monitor.size();
