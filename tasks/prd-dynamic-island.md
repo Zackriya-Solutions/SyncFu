@@ -153,7 +153,12 @@ island or the top-right card. Provisional field `presentation: "island" | "card"
 The field is mirrored across the three type files following the existing enum pattern, exposed as a
 `syncfu send` flag, and accepted over HTTP and WS unchanged in transport.
 - Acceptance: default-omitted payloads render as top-right cards (regression); `presentation: "island"`
-  renders in the island window; unknown values fall back to card without erroring.
+  renders in the island window; an UNKNOWN presentation value is rejected with a validation
+  error listing the valid values (422 at the HTTP boundary) - consistent with how `priority`
+  and every other enum field behaves. Only an OMITTED field defaults to card. (Amended: the
+  original "fall back to card without erroring" criterion predated implementation; silent
+  fallback would render the wrong presentation on a typo, and strict validation matches the
+  established API contract.)
 
 **FR-2** Senders MUST NOT be able to control island geometry, position, mode, size, or opacity through
 the payload. The payload's only styling surface is the existing 27 `style` overrides (`StyleOverrides`).
@@ -414,6 +419,10 @@ user stories it blocks. `--sub-skill` mode logged them here rather than blocking
 ---
 
 ## Amendment changelog (T10, 2026-07-21)
+
+- FR-1 acceptance: unknown presentation values now documented as strictly rejected (422 with
+  valid-values error), matching merged code and the priority-field contract; only omission
+  defaults to card. Adjudicated by the orchestrator from the T10 worker's flag.
 
 The six synthesis-item amendments (90-synthesis section 5) plus the T5a-review invariant-b rewording,
 applied as explicit edits against the MERGED implementation (values verified against code, not the plan):
