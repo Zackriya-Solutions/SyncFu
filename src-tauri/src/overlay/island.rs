@@ -16,6 +16,7 @@
 //! versa.
 
 use log::info;
+use serde::Serialize;
 use tauri::{AppHandle, Manager};
 
 #[cfg(target_os = "macos")]
@@ -260,6 +261,157 @@ pub fn set_island_capture_protected(app: &AppHandle, protected: bool) {
     });
 }
 
+/// First Windows 10 build that honors `WDA_EXCLUDEFROMCAPTURE` (2004 / 20H1). Earlier builds only
+/// offer `WDA_MONITOR`, which does not reliably exclude a window from capture (G2 / MS docs).
+const WINDOWS_EXCLUDE_FROM_CAPTURE_BUILD: u32 = 19041;
+
+/// First macOS product major where ScreenCaptureKit ignores `sharingType = .none`, so exclusion is
+/// best-effort only (Sequoia = macOS 15 = Darwin 24). Documented by A1 / proven-scope by G2. This
+/// boundary is exactly the G2 "Darwin >= 24" boundary expressed in product-version terms
+/// (macOS 15 = Darwin 24, macOS 26 = Darwin 25).
+const MACOS_BEST_EFFORT_MAJOR: u32 = 15;
+
+/// The screen-capture exclusion status the OS actually delivers for the island window. Derived ONLY
+/// from the OS + version, NEVER from a `sharingType` read-back (G2: read-back is false safety, it
+/// passes while ScreenCaptureKit may still capture). Serialized kebab-case to mirror the TS enum in
+/// `src/types/islandSettings.ts` for T7b.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CaptureStatus {
+    /// OS is known to honor exclusion: macOS <= 14, or Windows build >= 19041. When the toggle is on,
+    /// the window is genuinely hidden from capture.
+    On,
+    /// The flag is applied but the OS may still capture the window: macOS 15+ (post-15 SCK). Applied
+    /// as harmless defense-in-depth; the UI must NOT claim a guarantee (invariant b).
+    BestEffort,
+    /// The OS lacks a reliable exclusion mechanism: Linux (no API), Windows < 19041.
+    Unsupported,
+    /// The OS or version could not be determined. Fail-safe: assume the window is visible.
+    Unknown,
+}
+
+/// Injected OS facts for capture-status derivation. A pure input keeps the full per-OS matrix
+/// unit-testable without touching the real OS. macOS carries the product major version
+/// (`NSProcessInfo.operatingSystemVersion.majorVersion`): 14 = Sonoma (Darwin 23), 15 = Sequoia
+/// (Darwin 24), 26 = Tahoe (Darwin 25).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OsCaptureFacts {
+    Macos { major: u32 },
+    Windows { build: u32 },
+    Linux,
+    /// OS/version could not be read (or an unclassified target). Maps to the fail-safe UNKNOWN.
+    Undetectable,
+}
+
+/// The full status report the IPC surfaces to T7b: the OS-capability tri-state, an honest reason,
+/// and the live `hideFromScreenCapture` toggle (whether the flag is applied at all). camelCase on
+/// the wire to match the TS mirror.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IslandCaptureStatus {
+    pub status: CaptureStatus,
+    pub reason: String,
+    pub enabled: bool,
+}
+
+impl IslandCaptureStatus {
+    fn from_facts(facts: OsCaptureFacts, enabled: bool) -> Self {
+        let (status, reason) = derive_capture_status(facts);
+        IslandCaptureStatus {
+            status,
+            reason: reason.to_string(),
+            enabled,
+        }
+    }
+}
+
+/// Pure derivation: OS facts -> (status, honest reason). Fail-safe: anything undetectable, or any
+/// macOS major at or beyond the best-effort boundary, never returns `On` (invariant b). NEVER
+/// inspects a `sharingType` read-back (G2).
+pub fn derive_capture_status(facts: OsCaptureFacts) -> (CaptureStatus, &'static str) {
+    match facts {
+        OsCaptureFacts::Macos { major } if major < MACOS_BEST_EFFORT_MAJOR => (
+            CaptureStatus::On,
+            "Hidden from screen capture on this macOS version.",
+        ),
+        OsCaptureFacts::Macos { .. } => (
+            CaptureStatus::BestEffort,
+            "Best effort only: macOS 15 and later can still capture this window.",
+        ),
+        OsCaptureFacts::Windows { build } if build >= WINDOWS_EXCLUDE_FROM_CAPTURE_BUILD => (
+            CaptureStatus::On,
+            "Hidden from screen capture (Windows 10 build 19041 or newer).",
+        ),
+        OsCaptureFacts::Windows { .. } => (
+            CaptureStatus::Unsupported,
+            "Not supported: requires Windows 10 build 19041 or newer.",
+        ),
+        OsCaptureFacts::Linux => (CaptureStatus::Unsupported, "Not supported on Linux."),
+        OsCaptureFacts::Undetectable => (
+            CaptureStatus::Unknown,
+            "Unverified OS: assume this window is visible to screen capture.",
+        ),
+    }
+}
+
+/// Gather the real OS facts and derive the live capture status for `enabled`. Thin runtime seam; all
+/// classification lives in the pure `derive_capture_status`. Detection uses only public OS APIs
+/// (R-MACOS-PRIVATE): `NSProcessInfo` on macOS, `cmd /C ver` on Windows.
+pub fn current_capture_status(enabled: bool) -> IslandCaptureStatus {
+    IslandCaptureStatus::from_facts(detect_os_facts(), enabled)
+}
+
+/// macOS: product major via `NSProcessInfo.operatingSystemVersion` (public API, not the private
+/// SkyLight/CoreGraphics surface). A zero or absent major falls back to the fail-safe UNKNOWN.
+#[cfg(target_os = "macos")]
+fn detect_os_facts() -> OsCaptureFacts {
+    use objc2_foundation::NSProcessInfo;
+
+    let version = NSProcessInfo::processInfo().operatingSystemVersion();
+    let major = version.majorVersion;
+    if major > 0 {
+        OsCaptureFacts::Macos {
+            major: major as u32,
+        }
+    } else {
+        OsCaptureFacts::Undetectable
+    }
+}
+
+/// Windows: build number from `cmd /C ver` (e.g. `Microsoft Windows [Version 10.0.19045.3803]`). No
+/// new dependency; any parse failure falls back to the fail-safe UNKNOWN. Unit-tested only via the
+/// pure derivation (no Windows machine in this run).
+#[cfg(target_os = "windows")]
+fn detect_os_facts() -> OsCaptureFacts {
+    match windows_build_number() {
+        Some(build) => OsCaptureFacts::Windows { build },
+        None => OsCaptureFacts::Undetectable,
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn windows_build_number() -> Option<u32> {
+    let output = std::process::Command::new("cmd")
+        .args(["/C", "ver"])
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    // "... [Version 10.0.19045.3803]" -> take "10.0.19045.3803" -> the build is the third field.
+    let version = text.split('[').nth(1)?.split(']').next()?;
+    let build = version.rsplit('.').nth(1)?;
+    build.trim().parse().ok()
+}
+
+#[cfg(target_os = "linux")]
+fn detect_os_facts() -> OsCaptureFacts {
+    OsCaptureFacts::Linux
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+fn detect_os_facts() -> OsCaptureFacts {
+    OsCaptureFacts::Undetectable
+}
+
 /// Toggle whether the island window receives pointer events. `interactive == false` restores the
 /// idle click-through so the transparent envelope never eats clicks; `true` lets the shown capsule
 /// take clicks (buttons). In place - never resizes or rebuilds the frame. Dispatches to the main
@@ -421,5 +573,122 @@ mod tests {
         // and the tallest (maxExpH 560) so it never resizes during morph (D3).
         assert!(IslandEnvelope::FIXED.width >= 600.0);
         assert!(IslandEnvelope::FIXED.height >= 560.0);
+    }
+
+    // --- Capture-status derivation matrix (T9) ---
+    // macOS product major <-> Darwin kernel major: 13=Darwin22, 14=Darwin23, 15=Darwin24, 26=Darwin25.
+
+    fn status(facts: OsCaptureFacts) -> CaptureStatus {
+        derive_capture_status(facts).0
+    }
+
+    #[test]
+    fn macos_sonoma_and_earlier_is_on() {
+        // macOS 13 (Darwin 22) and 14 (Darwin 23): SCK honors sharingType exclusion -> ON.
+        assert_eq!(status(OsCaptureFacts::Macos { major: 13 }), CaptureStatus::On);
+        assert_eq!(status(OsCaptureFacts::Macos { major: 14 }), CaptureStatus::On);
+    }
+
+    #[test]
+    fn macos_sequoia_is_best_effort() {
+        // macOS 15 (Darwin 24): the boundary case. Post-15 SCK ignores the flag -> BEST_EFFORT.
+        assert_eq!(
+            status(OsCaptureFacts::Macos { major: 15 }),
+            CaptureStatus::BestEffort
+        );
+    }
+
+    #[test]
+    fn macos_tahoe_is_best_effort() {
+        // macOS 26 (Darwin 25): the live G2 machine (26.5) -> BEST_EFFORT, never a false ON.
+        assert_eq!(
+            status(OsCaptureFacts::Macos { major: 26 }),
+            CaptureStatus::BestEffort
+        );
+    }
+
+    #[test]
+    fn macos_15_plus_never_reports_on() {
+        // Hard invariant (b): NO macOS at or beyond the boundary, present or future, ever claims a
+        // silent "hidden" (A1 false-safety is the catastrophic case).
+        for major in MACOS_BEST_EFFORT_MAJOR..=40 {
+            assert_ne!(
+                status(OsCaptureFacts::Macos { major }),
+                CaptureStatus::On,
+                "macOS major {major} must never report ON"
+            );
+        }
+    }
+
+    #[test]
+    fn windows_below_19041_is_unsupported() {
+        assert_eq!(
+            status(OsCaptureFacts::Windows { build: 19040 }),
+            CaptureStatus::Unsupported
+        );
+    }
+
+    #[test]
+    fn windows_19041_and_newer_is_on() {
+        assert_eq!(
+            status(OsCaptureFacts::Windows { build: 19041 }),
+            CaptureStatus::On
+        );
+        assert_eq!(
+            status(OsCaptureFacts::Windows { build: 22631 }),
+            CaptureStatus::On
+        );
+    }
+
+    #[test]
+    fn linux_is_unsupported() {
+        assert_eq!(status(OsCaptureFacts::Linux), CaptureStatus::Unsupported);
+    }
+
+    #[test]
+    fn undetectable_fails_safe_to_unknown() {
+        // Fail-safe: cannot determine the OS -> assume visible (UNKNOWN), never ON.
+        assert_eq!(
+            status(OsCaptureFacts::Undetectable),
+            CaptureStatus::Unknown
+        );
+    }
+
+    #[test]
+    fn report_mirrors_enabled_flag_without_changing_status() {
+        // Toggle round-trip at the pure layer: `enabled` flips in the report while the OS-capability
+        // status is unchanged (the OS does not change when the user toggles the setting). The actual
+        // set_content_protected re-apply is wired in set_island_settings (T7a) and needs a live app.
+        for major in [13u32, 15, 26] {
+            let facts = OsCaptureFacts::Macos { major };
+            let on = IslandCaptureStatus::from_facts(facts, true);
+            let off = IslandCaptureStatus::from_facts(facts, false);
+            assert!(on.enabled);
+            assert!(!off.enabled);
+            assert_eq!(on.status, off.status);
+            assert_eq!(on.reason, off.reason);
+        }
+    }
+
+    #[test]
+    fn status_serializes_kebab_case_for_ts_mirror() {
+        let report = IslandCaptureStatus::from_facts(OsCaptureFacts::Macos { major: 26 }, true);
+        let json = serde_json::to_string(&report).unwrap();
+        assert!(json.contains("\"status\":\"best-effort\""));
+        assert!(json.contains("\"enabled\":true"));
+        assert!(json.contains("\"reason\":\""));
+        // The other wire values.
+        assert_eq!(
+            serde_json::to_string(&CaptureStatus::On).unwrap(),
+            "\"on\""
+        );
+        assert_eq!(
+            serde_json::to_string(&CaptureStatus::Unsupported).unwrap(),
+            "\"unsupported\""
+        );
+        assert_eq!(
+            serde_json::to_string(&CaptureStatus::Unknown).unwrap(),
+            "\"unknown\""
+        );
     }
 }

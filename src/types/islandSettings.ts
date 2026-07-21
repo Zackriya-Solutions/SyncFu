@@ -26,6 +26,24 @@ export interface IslandSettings {
   readonly hideFromScreenCapture: boolean;
 }
 
+// Honest, OS-derived screen-capture status (T9). Mirror of the Rust `CaptureStatus`
+// (src-tauri/src/overlay/island.rs), serialized kebab-case. Derived only from the OS + version,
+// never from a sharingType read-back (G2). `best-effort` on macOS 15+ must NEVER render as a
+// guaranteed "hidden" (invariant b).
+export type IslandCaptureStatusKind =
+  | "on"
+  | "best-effort"
+  | "unsupported"
+  | "unknown";
+
+// Mirror of the Rust `IslandCaptureStatus` returned by the `get_island_capture_status` command.
+export interface IslandCaptureStatus {
+  readonly status: IslandCaptureStatusKind;
+  readonly reason: string;
+  // The live `hideFromScreenCapture` setting (whether the exclusion flag is applied at all).
+  readonly enabled: boolean;
+}
+
 // Mockup DEFAULTS - must match the Rust `IslandSettings::default()` exactly.
 export const DEFAULT_ISLAND_SETTINGS: IslandSettings = {
   compactWidth: 218,
