@@ -67,6 +67,32 @@ impl std::str::FromStr for ProgressStyle {
     }
 }
 
+/// How a notification is presented. `Card` is the existing top-right glass card.
+/// `Island` is the dynamic-island capsule (renders as a card until T4a).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Presentation {
+    Card,
+    Island,
+}
+
+impl Default for Presentation {
+    fn default() -> Self {
+        Self::Card
+    }
+}
+
+impl std::str::FromStr for Presentation {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "card" => Ok(Self::Card),
+            "island" => Ok(Self::Island),
+            _ => Err(format!("invalid presentation: {s} (expected: card, island)")),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Action {
@@ -168,6 +194,7 @@ pub struct NotifyRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
     pub priority: Priority,
+    pub presentation: Presentation,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<Timeout>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -339,6 +366,7 @@ mod tests {
             body: "Done".to_string(),
             icon: None,
             priority: Priority::High,
+            presentation: Presentation::Card,
             timeout: None,
             actions: vec![],
             progress: None,
@@ -350,9 +378,29 @@ mod tests {
         };
         let json = serde_json::to_string(&req).unwrap();
         assert!(json.contains("\"priority\":\"high\""));
+        assert!(json.contains("\"presentation\":\"card\""));
         assert!(json.contains("\"callback_url\""));
         assert!(!json.contains("\"icon\""));
         assert!(!json.contains("\"actions\""));
+    }
+
+    #[test]
+    fn test_presentation_serializes_lowercase() {
+        assert_eq!(serde_json::to_string(&Presentation::Card).unwrap(), "\"card\"");
+        assert_eq!(serde_json::to_string(&Presentation::Island).unwrap(), "\"island\"");
+    }
+
+    #[test]
+    fn test_presentation_from_str() {
+        assert_eq!("card".parse::<Presentation>().unwrap(), Presentation::Card);
+        assert_eq!("island".parse::<Presentation>().unwrap(), Presentation::Island);
+        assert_eq!("ISLAND".parse::<Presentation>().unwrap(), Presentation::Island);
+        assert!("bogus".parse::<Presentation>().is_err());
+    }
+
+    #[test]
+    fn test_presentation_default_is_card() {
+        assert_eq!(Presentation::default(), Presentation::Card);
     }
 
     #[test]

@@ -1,4 +1,4 @@
-use wiremock::matchers::{method, path};
+use wiremock::matchers::{body_partial_json, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 // Import the client and types from the crate
@@ -24,6 +24,7 @@ async fn test_send_notification() {
         body: "World".to_string(),
         icon: None,
         priority: Priority::Normal,
+        presentation: Presentation::Card,
         timeout: None,
         actions: vec![],
         progress: None,
@@ -57,6 +58,7 @@ async fn test_send_notification_with_actions() {
         body: "Review requested".to_string(),
         icon: Some("git-pull-request".to_string()),
         priority: Priority::High,
+        presentation: Presentation::Card,
         timeout: Some(Timeout::Named("never".to_string())),
         actions: vec![
             Action {
@@ -223,4 +225,60 @@ async fn test_connection_error_message() {
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
     assert!(err.contains("cannot connect to syncfu"));
+}
+
+/// End-to-end through the real CLI binary: `syncfu send --presentation island`
+/// must post `"presentation":"island"` across the HTTP boundary. The mock only
+/// matches when the body contains that field, so a matched request (201 + success
+/// exit) proves the flag reached the wire.
+#[tokio::test]
+async fn test_cli_presentation_island_posts_field() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/notify"))
+        .and(body_partial_json(serde_json::json!({ "presentation": "island" })))
+        .respond_with(
+            ResponseTemplate::new(201).set_body_json(serde_json::json!({ "id": "island-1" })),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let status = std::process::Command::new(env!("CARGO_BIN_EXE_syncfu"))
+        .args([
+            "--server",
+            &server.uri(),
+            "send",
+            "hello",
+            "--presentation",
+            "island",
+        ])
+        .status()
+        .expect("failed to spawn syncfu binary");
+
+    assert!(status.success(), "CLI exited with failure: {status:?}");
+}
+
+/// Omitting `--presentation` defaults to `card` on the wire (back-compat).
+#[tokio::test]
+async fn test_cli_presentation_defaults_to_card() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/notify"))
+        .and(body_partial_json(serde_json::json!({ "presentation": "card" })))
+        .respond_with(
+            ResponseTemplate::new(201).set_body_json(serde_json::json!({ "id": "card-1" })),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let status = std::process::Command::new(env!("CARGO_BIN_EXE_syncfu"))
+        .args(["--server", &server.uri(), "send", "hello"])
+        .status()
+        .expect("failed to spawn syncfu binary");
+
+    assert!(status.success(), "CLI exited with failure: {status:?}");
 }

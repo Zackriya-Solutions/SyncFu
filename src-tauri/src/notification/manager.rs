@@ -109,7 +109,7 @@ impl NotificationManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::notification::types::{Priority, Timeout};
+    use crate::notification::types::{Presentation, Priority, Timeout};
 
     fn make_notification(id: &str) -> NotificationPayload {
         NotificationPayload {
@@ -119,6 +119,7 @@ mod tests {
             body: "body".to_string(),
             icon: None,
             priority: Priority::Normal,
+            presentation: Presentation::Card,
             timeout: Timeout::default(),
             actions: vec![],
             progress: None,

@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use log::{error, info};
 use notification::manager::NotificationManager;
-use notification::types::{NotificationPayload, NotificationUpdate, Priority, Timeout};
+use notification::types::{NotificationPayload, NotificationUpdate, Presentation, Priority, Timeout};
 use server::http::ServerState;
 use server::waiters::{WaitEvent, WaiterRegistry};
 use server::webhook::{self, WebhookPayload, WebhookResult};
@@ -172,6 +172,7 @@ async fn test_notify(
         body: "syncfu is working! This is a test notification.".to_string(),
         icon: None,
         priority: Priority::Normal,
+        presentation: Presentation::Card,
         timeout: Timeout::default(),
         actions: vec![],
         progress: None,
