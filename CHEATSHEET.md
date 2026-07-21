@@ -40,6 +40,25 @@ ACTION=$(syncfu send -t "Pick" \
 echo "User chose: $ACTION"
 ```
 
+## dynamic island (v0.3+)
+
+```bash
+# Route to the notch-anchored island instead of the top-right card
+syncfu send --presentation island -t "Deploying" "Rolling out v2.3"
+
+# Island decision with --wait. Unanswered: the island stays expanded and the
+# command exits 2 (timeout) after --wait-timeout, not 1 (dismissed) like the card.
+syncfu send --presentation island -t "Approve?" \
+  -a "yes:Approve:primary" -a "no:Reject:danger" \
+  --wait --wait-timeout 120 "Merge PR #42?"
+# exit: 0=action, 1=dismissed, 2=timeout
+
+# Geometry/position/appearance are app settings, not payload fields; the payload
+# only carries the 27 style overrides. Capture exclusion (hideFromScreenCapture)
+# is guaranteed on macOS <= 14 and Windows build 19041+, best-effort on macOS 15+,
+# and unsupported on Linux. See the README Dynamic Island section.
+```
+
 ## actions + callbacks
 
 ```bash

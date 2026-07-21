@@ -153,7 +153,12 @@ island or the top-right card. Provisional field `presentation: "island" | "card"
 The field is mirrored across the three type files following the existing enum pattern, exposed as a
 `syncfu send` flag, and accepted over HTTP and WS unchanged in transport.
 - Acceptance: default-omitted payloads render as top-right cards (regression); `presentation: "island"`
-  renders in the island window; unknown values fall back to card without erroring.
+  renders in the island window; an UNKNOWN presentation value is rejected with a validation
+  error listing the valid values (422 at the HTTP boundary) - consistent with how `priority`
+  and every other enum field behaves. Only an OMITTED field defaults to card. (Amended: the
+  original "fall back to card without erroring" criterion predated implementation; silent
+  fallback would render the wrong presentation on a typo, and strict validation matches the
+  established API contract.)
 
 **FR-2** Senders MUST NOT be able to control island geometry, position, mode, size, or opacity through
 the payload. The payload's only styling surface is the existing 27 `style` overrides (`StyleOverrides`).
@@ -204,8 +209,8 @@ defaults (schema = mockup `island.settings.json`):
 | `expandedWidth` | 320-560 | 380 | card width |
 | `height` | 24-60 | 34 | capsule height |
 | `surfaceOpacity` | 0-100% | 94 | surface fill alpha only |
-| `topRadius` | (radius range) | per mockup | with `cornerScaling` |
-| `bottomRadius` | (radius range) | per mockup | with `cornerScaling` |
+| `topRadius` | 0-24 | 6 | with `cornerScaling` (A-4, matches shipped clamp) |
+| `bottomRadius` | 0-40 | 14 | with `cornerScaling` (A-4, matches shipped clamp) |
 | `cornerScaling` | bool | true | scale radii between states |
 | `accent` | preset or custom hex | `#4a9eff` | presets + custom |
 | `mode` | notch \| float | notch | |
@@ -237,10 +242,14 @@ notch.
 
 **FR-12** Expanding MUST reveal a priority-ranked, deduped list capped at 6 rows / 560px, then scroll
 inside the island with a bottom-fade affordance; rows stagger in 40-60ms; critical ranks first;
-auto-dismiss is paused while the list is open. Dedupe-key semantics and row-to-action mapping are
-specified in OQ-6.
-- Acceptance: list is ranked critical-first, deduped, capped at 6 rows before scrolling with a bottom
-  fade; auto-dismiss does not fire while the list is open.
+auto-dismiss is paused while the list is open. The dedupe key is `group ?? sender::title` (A-3, C6): a
+notification's `group` when set, otherwise the pair `sender::title`. Notifications with a pending
+`--wait` waiter are EXEMPT from dedupe merging and keep a strict 1:1 id-to-waiter mapping, so each
+`--wait` decision resolves its own CLI exit code (A-3, A4). Each list row maps 1:1 to its notification's
+id and its own primary action / dismiss.
+- Acceptance: list is ranked critical-first, deduped by `group ?? sender::title`, capped at 6 rows before
+  scrolling with a bottom fade; auto-dismiss does not fire while the list is open; two `--wait`
+  notifications that share a dedupe key stay as two rows and resolve two independent exit codes.
 
 **FR-13** Overflow Models A (badge + cycle) and C (stack-under) MUST NOT be implemented. The build MUST
 carry an explicit guard so they are not reintroduced without re-adjudication (C is the named
@@ -251,12 +260,20 @@ anti-pattern no mature app ships).
 
 **FR-14** Island mode MUST reuse existing behavior: actions (primary/secondary/danger), `--wait`
 blocking with exit codes 0/1/2, priority timeouts (low 6s / normal 8s / high 12s / critical never),
-progress updates (bar and ring), grouping/stacking (via Model B), and all 27 style overrides.
-- Acceptance: a matrix of these behaviors passes in island mode identically to card mode.
+progress updates (bar and ring), grouping/stacking (via Model B), and all 27 style overrides. One
+island-specific clarification of the shared `--wait` contract (ratified, T5a-review invariant b): an
+island `--wait` decision stays expanded and is NOT auto-dismissed while it waits, so an UNANSWERED island
+decision resolves via the CLI's `--wait-timeout` and exits `2` (timeout). This differs from the top-right
+card, where an unanswered non-critical decision auto-dismisses on its priority timeout and exits `1`
+(dismissed). Answered (exit 0) and explicitly-dismissed (exit 1) paths are identical across both.
+- Acceptance: a matrix of these behaviors passes in island mode identically to card mode; specifically an
+  unanswered island `--wait` decision exits `2`, not `1`.
 
 **FR-15** The system MUST define a compact-vs-expanded lifecycle: when the island arrives expanded vs as
 a pill, what triggers expansion (activity / hover / click), what triggers collapse, and how `--wait`
-holds it expanded. The exact model is specified in OQ-2 and MUST be resolved before US-002 ships.
+holds it expanded. The RATIFIED default (OQ-2, C4) is arrive-expanded-then-collapse-to-pill: a
+notification arrives expanded, holds briefly, then auto-collapses to the compact live pill; a `--wait`
+decision instead stays expanded (auto-collapse and auto-dismiss suppressed) until it is answered.
 - Acceptance: every state transition (arrive, expand, collapse, decision-hold, timeout, dismiss,
   overflow-open) is enumerated with its trigger and its interruption/resume behavior.
 
@@ -267,11 +284,15 @@ expanded content requires it (actions, list). Idle morph and hover MUST NOT jank
 
 ### Capture exclusion (D1, dedicated track)
 
-**FR-17** The island window MUST be excluded from OS screen capture by default on macOS
-(`NSWindowSharingNone`) and Windows (`WDA_EXCLUDEFROMCAPTURE`) via Tauri `set_content_protected(true)`,
-applied to the actual island window type. If the property does not apply to the `tauri-nspanel` NSPanel,
-an alternate AppKit path MUST set `sharingType = .none` (OQ-4, early gate).
-- Acceptance: recording the screen on macOS and Windows shows no island; toggle default is ON.
+**FR-17** The island window MUST apply OS screen-capture exclusion by default (`NSWindowSharingNone` on
+macOS, `WDA_EXCLUDEFROMCAPTURE` on Windows) via Tauri `set_content_protected(true)`, applied to the
+actual island window type. Exclusion is GUARANTEED only on macOS 14 (Sonoma) and earlier and on Windows
+10 build 19041 and newer. On macOS 15 (Sequoia) and later it is BEST EFFORT: ScreenCaptureKit ignores
+the flag and there is no public API to force exclusion (A-2, C3/A1), so the flag is still applied as
+harmless defense-in-depth but the toggle MUST surface honest status and MUST NOT claim a guarantee
+(invariant b). The status is derived from the OS and version, never from a `sharingType` read-back.
+- Acceptance: on macOS <= 14 and Windows >= 19041 a screen recording shows no island; on macOS 15+ the
+  UI reports "best effort", never a false "hidden"; toggle default is ON.
 
 **FR-18** On Linux, where no reliable capture-exclusion API exists, the system MUST implement the
 documented behavior chosen in OQ-5 and MUST NOT claim invisibility it cannot deliver.
@@ -309,7 +330,8 @@ documented behavior chosen in OQ-5 and MUST NOT claim invisibility it cannot del
   architecture-lane call; either way visual verification is Playwright-based because layout animation
   does not run in jsdom.
 - **Regression surface (syncfu, NOT the 6 Meetily KPIs):** top-right overlay behavior, HTTP/WS API
-  compatibility, CLI flag compatibility, history/SQLite.
+  compatibility, CLI flag compatibility, the frontend history store (C2: history is the frontend
+  `historyStore`, not SQLite).
 
 ---
 
@@ -355,11 +377,11 @@ user stories it blocks. `--sub-skill` mode logged them here rather than blocking
 | ID | Question | Owner lane | Blocks |
 |----|----------|-----------|--------|
 | **OQ-1** | Kind-selection API: final field name and default (`presentation: "island" \| "card"` vs `variant` vs reuse `theme`), across payload + CLI flag + HTTP/WS schema. | 02-architecture | US-001, FR-1 |
-| **OQ-2** | Compact/expanded lifecycle: arrive expanded then collapse to a live pill, or arrive as a pill and expand on activity/hover/click? What triggers re-expansion? How does `--wait` hold it expanded? | 02-architecture / 05-tasks | US-002, FR-15 |
+| **OQ-2** (RESOLVED, C4) | Compact/expanded lifecycle. RESOLVED: arrive-expanded-then-collapse-to-pill is the ratified default (see FR-15); a `--wait` decision stays expanded until answered. | 02-architecture / 05-tasks | US-002, FR-15 |
 | **OQ-3** | Tauri access path to NSScreen `auxiliaryTopLeftArea` / `auxiliaryTopRightArea` for notch geometry (Tauri plugin? `objc2` crate? private API?). Early isolated gate. | 02-architecture / 05-tasks | FR-4, FR-5 |
 | **OQ-4** | Does `set_content_protected(true)` apply to the `tauri-nspanel` NSPanel window type on macOS? If not, set `sharingType = .none` via a raw AppKit handle. Early isolated gate. | 02-architecture / 05-tasks | US-003, FR-17 |
 | **OQ-5** | Linux screen-share fallback: hide while a known capture app is frontmost, or accept visible and warn? Decide the documented behavior. | 04-risk / 02-architecture | US-003, FR-18 |
-| **OQ-6** | Model B dedupe-key semantics (dedupe by group field? by live-activity key?) and how list rows map to actions / callbacks / `--wait`. | 05-tasks / 02-architecture | FR-12 |
+| **OQ-6** (RESOLVED, C6) | Model B dedupe-key semantics. RESOLVED: the dedupe key is `group ?? sender::title` (see FR-12); `--wait` rows are exempt from dedupe and each list row maps 1:1 to its notification id / action. | 05-tasks / 02-architecture | FR-12 |
 | **OQ-7** | Multi-monitor: which monitor hosts the island; behavior on external non-notch displays of a notched Mac. | 02-architecture / 04-risk | FR-4 |
 | **OQ-8** | Settings persistence location and IPC (`island.settings.json` -> Tauri store? config file?) and the settings UI surface. | 02-architecture | US-004, FR-8 |
 | **OQ-9** | Coexistence rules: can island mode and top-right cards be on screen simultaneously, or is one active at a time? Per-notification routing semantics. | 02-architecture | FR-3 |
@@ -393,6 +415,33 @@ user stories it blocks. `--sub-skill` mode logged them here rather than blocking
 - **06-test-strategy:** owns the D1 dedicated capture-exclusion track (FR-17/18); visual-regression on
   the mockup `shot-*` ids; must assert the FR-7 content-vs-shape invariant, not box-vs-box; jsdom is
   blind to layout animation so island visual checks are Playwright-based.
+
+---
+
+## Amendment changelog (T10, 2026-07-21)
+
+- FR-1 acceptance: unknown presentation values now documented as strictly rejected (422 with
+  valid-values error), matching merged code and the priority-field contract; only omission
+  defaults to card. Adjudicated by the orchestrator from the T10 worker's flag.
+
+The six synthesis-item amendments (90-synthesis section 5) plus the T5a-review invariant-b rewording,
+applied as explicit edits against the MERGED implementation (values verified against code, not the plan):
+
+- **A-1 (FR-8 radius ranges, F-MED-3):** replaced `topRadius`/`bottomRadius` "(radius range) / per mockup"
+  with the shipped clamps `topRadius 0-24` (default 6) and `bottomRadius 0-40` (default 14). These are the
+  ranges enforced in `src-tauri/src/notification/settings.rs`; they supersede the synthesis's provisional
+  0-20 / 0-30 recommendation, which the merged code did not adopt.
+- **A-2 (FR-17 macOS 15 caveat, C3/A1):** scoped capture exclusion honestly - guaranteed on macOS <= 14 and
+  Windows build 19041+, best-effort on macOS 15+ (ScreenCaptureKit ignores the flag, no public API), never
+  claiming a guarantee it cannot deliver.
+- **A-3 (FR-12/FR-14 waiter-exemption + OQ-6 dedupe key, A4/C6):** set the dedupe key to
+  `group ?? sender::title`, deleted "live-activity key", and stated that `--wait` waiters are exempt from
+  dedupe with a strict 1:1 id-to-waiter mapping.
+- **A-4 (FR-15/OQ-2 lifecycle, C4):** ratified arrive-expanded-then-collapse-to-pill as the default, with
+  `--wait` decisions held expanded until answered; marked OQ-2 resolved.
+- **A-5 (S7 regression wording, C2):** replaced "history/SQLite" with "the frontend history store".
+- **A-6 (FR-14 invariant b, T5a-review):** documented that an unanswered island `--wait` decision exits `2`
+  (timeout), differing from the card's exit `1` (auto-dismiss).
 
 ---
 

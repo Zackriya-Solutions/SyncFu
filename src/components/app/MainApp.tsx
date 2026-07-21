@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { HistoryView } from "./HistoryView";
 import { IslandSettingsPanel } from "./IslandSettingsPanel";
+import { useHistoryIngest } from "@/hooks/useHistoryIngest";
 
 // Main window shell. Layout-slot decision (T7b): the island settings surface is a
 // second sidebar section beside History - a tray menu cannot host 13 controls.
@@ -9,6 +10,11 @@ type MainView = "history" | "island";
 
 export function MainApp() {
   const [view, setView] = useState<MainView>("history");
+
+  // Record every notification (card + island) into history. This is the single
+  // ingest point, mounted only here in the main window (the window that renders
+  // HistoryView); the backend broadcasts one `history:add` per notification.
+  useHistoryIngest();
 
   return (
     <div data-testid="main-app-root" className="main-app">

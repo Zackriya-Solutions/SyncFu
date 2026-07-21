@@ -85,6 +85,7 @@ Built with **Tauri v2** + **Rust** (axum) + **React** (Zustand). Ships on macOS,
 - [Integrations](#integrations)
 - [Architecture](#architecture)
 - [Customization](#customization)
+- [Dynamic Island](#dynamic-island)
 - [Roadmap](#roadmap)
 - [Contributing](#contributing)
 - [License](#license)
@@ -440,6 +441,7 @@ Closing the main window hides it — syncfu keeps running in the tray. The overl
 | `sender` | string | yes | Identifier for the sending process |
 | `title` | string | yes | Notification title |
 | `body` | string | yes | Body text (plain text) |
+| `presentation` | string | no | `card` (default when omitted) or `island` - routes to the top-right card or the [Dynamic Island](#dynamic-island). |
 | `icon` | string | no | Lucide icon name (e.g. `phone`, `git-pull-request`, `bell`) |
 | `font` | string | no | Google Font name (e.g. `Space Grotesk`, `JetBrains Mono`) |
 | `priority` | string | no | `low`, `normal` (default), `high`, `critical` |
@@ -616,6 +618,88 @@ syncfu send -t "Fancy" --font "Space Grotesk" "With a custom font"
 ```
 
 **Light/dark theme** — auto-follows system by default, or set per-notification with `"theme": "dark"`.
+
+---
+
+## Dynamic Island
+
+The **Dynamic Island** is a second notification presentation: a pure-black capsule anchored top-center that spring-morphs between a compact pill and an expanded card. It is additive - the top-right glass card stays the default, and you opt in per notification. On a MacBook it hugs the physical notch; on non-notch Macs, Windows, and Linux it renders as a floating capsule.
+
+It suits glanceable, ambient status for long agent tasks (timers, progress, approvals), and it can be hidden from screen recording and screen sharing so private notifications do not leak on a live capture (see the [support matrix](#screen-capture-support-matrix) for the exact per-OS guarantee).
+
+### Sending to the island
+
+Route any notification to the island with `--presentation island` (the default is `card`):
+
+```bash
+syncfu send --presentation island -t "Deploying" "Rolling out v2.3"
+```
+
+Everything the card supports works on the island: actions, priority timeouts, progress, grouping, and all 27 style overrides. Geometry and position are not part of the payload (they are app settings, see below); the payload only carries the `style` overrides.
+
+```bash
+syncfu send --presentation island -t "Approve?" \
+  -a "yes:Approve:primary" -a "no:Reject:danger" \
+  --wait --wait-timeout 120 "Merge PR #42?"
+# stdout: the chosen action id; exit 0 = action, 1 = dismissed, 2 = timeout
+```
+
+Over HTTP, add the same field to the payload:
+
+```bash
+curl -X POST localhost:9868/notify \
+  -H "Content-Type: application/json" \
+  -d '{"sender":"deploy","title":"Deploying","body":"Rolling out v2.3","presentation":"island"}'
+```
+
+An omitted `presentation` field defaults to the card, so existing integrations and older payloads are unchanged. A present value must be `card` or `island`.
+
+### `--wait` on the island
+
+A `--wait` decision on the island arrives expanded and stays expanded until you answer; its auto-dismiss is paused while it waits. If you never answer, the CLI's `--wait-timeout` (default 300s) elapses and the command exits `2` (timeout). This differs from the top-right card, where an unanswered non-critical decision auto-dismisses when its priority timeout elapses and the command exits `1` (dismissed).
+
+### Notch vs float
+
+- **Notch mode** (default): the capsule hugs the top-center notch. On a MacBook the compact pill stays pure black even in light appearance so it blends with the physical notch. `position` is ignored in notch mode.
+- **Float mode**: a fully-rounded floating capsule you can place `left`, `center`, `right`, or `bottom-center` (`bottom-center` is float-only and expands upward). Non-notch Macs, Windows, and Linux always float.
+
+### Multiple notifications
+
+When more than one island notification is active, the compact pill shows the highest-priority **spotlight** item plus an `xN` count badge (capped at `9+`). Expanding reveals a priority-ranked, deduped list (critical first) capped at 6 rows before it scrolls. Auto-dismiss is paused while the list is open. Notifications with a pending `--wait` are exempt from de-duplication so each keeps its own exit code.
+
+### Island settings
+
+The island's geometry and appearance are **app-wide settings**, not per-notification. Senders never control them. Configure the 13 settings from the app's Island panel; they persist across restarts (stored as `island.settings.json` in the app config dir). Out-of-range numeric values are clamped, not rejected.
+
+| Setting | Range | Default | Notes |
+|---------|-------|---------|-------|
+| `compactWidth` | 150-600 | 218 | compact pill width (px) |
+| `expandedWidth` | 320-560 | 380 | expanded card width (px) |
+| `height` | 24-60 | 34 | capsule height (px) |
+| `surfaceOpacity` | 0-100% | 94 | surface fill alpha (stored as 0.0-1.0) |
+| `topRadius` | 0-24 | 6 | top-corner radius (px) |
+| `bottomRadius` | 0-40 | 14 | bottom-corner radius (px) |
+| `cornerScaling` | on / off | on | scale radii between compact and expanded |
+| `accent` | preset or hex | `#4a9eff` | accent color |
+| `mode` | notch / float | notch | notch hugs the notch; float detaches |
+| `position` | left / center / right / bottom-center | center | float mode only |
+| `appearance` | dark / light / auto | dark | notch compact pill stays black even in light |
+| `reducedMotion` | on / off | off | uses the calmer 1000/100 springs |
+| `hideFromScreenCapture` | on / off | on | exclude from screen capture (see matrix) |
+
+### Screen-capture support matrix
+
+`hideFromScreenCapture` maps to the OS content-protection flag. What the OS actually delivers:
+
+| Platform | Behavior | Notes |
+|----------|----------|-------|
+| macOS 14 (Sonoma) and earlier | Hidden | Guaranteed: the OS honors the exclusion. |
+| macOS 15 (Sequoia) and later | Best effort | The flag is applied but ScreenCaptureKit can still capture the window, and there is no public API to force exclusion. The app reports this status honestly and never claims a guarantee. |
+| Windows 10 build 19041 and newer | Hidden | Guaranteed (`WDA_EXCLUDEFROMCAPTURE`). |
+| Windows older than build 19041 | Not supported | No reliable exclusion mechanism. |
+| Linux | Not supported | No reliable capture-exclusion API. |
+
+The island never claims to be invisible where the OS cannot deliver it. On macOS 15+ and unsupported platforms the setting is surfaced with its true status.
 
 ---
 

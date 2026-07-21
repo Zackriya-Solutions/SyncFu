@@ -62,6 +62,29 @@ describe("historyStore", () => {
       expect(entries[0].id).toBe("h-new");
       expect(entries).toHaveLength(2);
     });
+
+    // Double-ingest guard: a redelivered `history:add` (or a StrictMode
+    // double-listener) must never duplicate a row.
+    it("records a given id only once (history-single-entry)", () => {
+      const entry = makeHistoryEntry({ id: "dup" });
+      useHistoryStore.getState().prependEntry(entry);
+      useHistoryStore.getState().prependEntry(entry);
+
+      expect(useHistoryStore.getState().entries).toHaveLength(1);
+    });
+
+    it("keeps the first entry and ignores a later duplicate id", () => {
+      useHistoryStore
+        .getState()
+        .prependEntry(makeHistoryEntry({ id: "x", title: "first" }));
+      useHistoryStore
+        .getState()
+        .prependEntry(makeHistoryEntry({ id: "x", title: "second" }));
+
+      const entries = useHistoryStore.getState().entries;
+      expect(entries).toHaveLength(1);
+      expect(entries[0].title).toBe("first");
+    });
   });
 
   describe("selectedId", () => {
