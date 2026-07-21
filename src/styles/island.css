@@ -20,6 +20,37 @@
   pointer-events: none;
 }
 
+/* ---- Float-mode positions (T8, D4) --------------------------------------- *
+ * The Rust window anchor (island.rs) moves the transparent frame to the target
+ * monitor edge; these rules place the capsule against the MATCHING edge inside
+ * the frame so the two agree. Notch mode never sets a non-center position
+ * (IslandOverlay forces center - invariant e). The 12px edge gap is provided by
+ * the window anchor for left/right/bottom; float top positions add a small top
+ * inset so the capsule floats down instead of hugging flush like the notch. */
+.island-root[data-position="left"] {
+  justify-content: flex-start;
+}
+.island-root[data-position="right"] {
+  justify-content: flex-end;
+}
+.island-root[data-mode="float"][data-position="left"],
+.island-root[data-mode="float"][data-position="right"],
+.island-root[data-mode="float"][data-position="center"] {
+  padding-top: 12px;
+}
+
+/* Bottom-center: anchor the capsule to the BOTTOM edge and let it grow UPWARD
+ * (volume-OSD behavior - the bottom stays put mid-morph, height extends up).
+ * `align-items: flex-end` alone achieves this: as the flex item's height grows it
+ * expands away from the bottom cross-axis edge, so NO islandMorph anchor logic is
+ * needed. The hover lift re-anchors to the bottom so it never pushes down. */
+.island-root[data-position="bottom-center"] {
+  align-items: flex-end;
+}
+.island-root[data-position="bottom-center"] .di-island {
+  transform-origin: bottom center;
+}
+
 /* The visible capsule. Width/height + `--di-wall` are written imperatively by
  * the morph controller (islandMorph.ts) every frame - never in JSX, so a React
  * re-render can never clobber a live morph. `--di-wall` defaults to the compact
@@ -179,4 +210,33 @@
   font-size: var(--s-body-font-size, 12px);
   line-height: 1.4;
   margin-top: 4px;
+}
+
+/* ---- Light appearance: dark ink ramp on the light surface (T8, D4) -------- *
+ * Applied by Island.tsx (`.di-light-content`) on the SAME surfaces the morph
+ * controller lightens: the expanded card and the float compact pill. The notch
+ * compact pill never gets this class (its fill stays #000000 - invariant d).
+ * Ink ramp pulled from the mockup's approved light stage (.t-light block):
+ *   surface  #f4f4f6 (float pill #e9e9ee)  |  accent #0a84ff
+ *   ink      rgba(0,0,0,.90)  title
+ *   ink-mid  rgba(0,0,0,.62)  compact sender / body
+ *   ink-dim  rgba(0,0,0,.42)  expanded head sender / time
+ *   hairline rgba(0,0,0,.10)  icon border
+ * These win over the `--s-*` defaults by specificity, which is the intended
+ * re-skin: light appearance overrides the per-notification palette. */
+.di-light-content .di-sender {
+  color: rgba(0, 0, 0, 0.62);
+}
+.di-light-content .di-title {
+  color: rgba(0, 0, 0, 0.9);
+}
+.di-light-content .di-msg {
+  color: rgba(0, 0, 0, 0.62);
+}
+.di-light-content .di-ehead .di-sender,
+.di-light-content .di-ehead .notification-time {
+  color: rgba(0, 0, 0, 0.42);
+}
+.di-light-content .di-icon {
+  border-color: rgba(0, 0, 0, 0.1);
 }

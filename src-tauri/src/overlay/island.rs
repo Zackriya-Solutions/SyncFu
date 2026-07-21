@@ -23,6 +23,7 @@ use tauri::{AppHandle, Manager};
 use tauri_nspanel::ManagerExt;
 
 use super::panel::MonitorInfo;
+use crate::notification::settings::{Mode, Position};
 
 // NSPanel type for the island, configured identically to the notification panel:
 // non-activating, never key/main, floating.
@@ -85,6 +86,57 @@ pub fn calculate_island_anchor(monitor: MonitorInfo, envelope_width: f64) -> Isl
     IslandPosition {
         x: logical_x + (logical_width - envelope_width) / 2.0,
         y: logical_y,
+    }
+}
+
+/// Gap between the floating capsule frame and the monitor edge it anchors to (logical px). Matches
+/// the mockup's float inset (~12px above the bottom edge / in from the side edges).
+const FLOAT_EDGE_MARGIN: f64 = 12.0;
+
+/// Float-mode anchor for the fixed envelope on `monitor`, per `position` (D4, T8). Notch mode never
+/// reaches here (it always uses `calculate_island_anchor`); `Center` here is byte-identical to that
+/// top-center anchor, so the two agree. `Left`/`Right` pin the frame `FLOAT_EDGE_MARGIN` in from the
+/// side edge; `BottomCenter` pins the frame's BOTTOM edge `FLOAT_EDGE_MARGIN` above the monitor
+/// bottom so the capsule (bottom-aligned inside the frame, CSS) sits just above the edge and expands
+/// upward. Logical pixels throughout (scale-factor corrected), mirroring `calculate_island_anchor`.
+pub fn calculate_island_float_anchor(
+    monitor: MonitorInfo,
+    envelope: IslandEnvelope,
+    position: Position,
+) -> IslandPosition {
+    let logical_x = monitor.x / monitor.scale_factor;
+    let logical_y = monitor.y / monitor.scale_factor;
+    let logical_width = monitor.width / monitor.scale_factor;
+    let logical_height = monitor.height / monitor.scale_factor;
+
+    let x = match position {
+        Position::Left => logical_x + FLOAT_EDGE_MARGIN,
+        Position::Right => logical_x + logical_width - envelope.width - FLOAT_EDGE_MARGIN,
+        Position::Center | Position::BottomCenter => {
+            logical_x + (logical_width - envelope.width) / 2.0
+        }
+    };
+    let y = match position {
+        Position::BottomCenter => {
+            logical_y + logical_height - envelope.height - FLOAT_EDGE_MARGIN
+        }
+        _ => logical_y,
+    };
+
+    IslandPosition { x, y }
+}
+
+/// Resolve the window anchor for the given mode + position (T8). Notch mode is ALWAYS top-center
+/// (position is ignored - invariant e); float mode dispatches to `calculate_island_float_anchor`.
+pub fn island_anchor_for(
+    monitor: MonitorInfo,
+    envelope: IslandEnvelope,
+    mode: Mode,
+    position: Position,
+) -> IslandPosition {
+    match mode {
+        Mode::Notch => calculate_island_anchor(monitor, envelope.width),
+        Mode::Float => calculate_island_float_anchor(monitor, envelope, position),
     }
 }
 
@@ -434,7 +486,13 @@ fn set_island_idle_click_through(app: &AppHandle) {
 /// thread (notch detection needs a `MainThreadMarker`). No-op if the window or monitor is missing.
 fn reposition_island_on_main(app: &AppHandle) {
     if let Some(monitor) = island_target_monitor(app) {
-        let pos = calculate_island_anchor(monitor, IslandEnvelope::FIXED.width);
+        // Read the persisted mode + position so a float position anchors the frame to the matching
+        // edge. A missing/corrupt file yields defaults (notch/center == top-center). D3: this is an
+        // instant `set_position`, never an animated frame move.
+        let settings = crate::notification::settings::settings_path(app)
+            .map(|p| crate::notification::settings::load_settings(&p))
+            .unwrap_or_default();
+        let pos = island_anchor_for(monitor, IslandEnvelope::FIXED, settings.mode, settings.position);
         if let Some(window) = app.get_webview_window(ISLAND_LABEL) {
             let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition::new(
                 pos.x, pos.y,
@@ -565,6 +623,95 @@ mod tests {
         let left_margin = pos.x;
         let right_margin = 1440.0 - (pos.x + W);
         assert_eq!(left_margin, right_margin);
+    }
+
+    // --- Float-mode position anchors (T8) ---
+    const ENV: IslandEnvelope = IslandEnvelope::FIXED; // 600 x 560
+
+    #[test]
+    fn float_center_equals_top_center_anchor() {
+        // Float Center must be byte-identical to the notch top-center anchor so the two never drift.
+        for (w, h, sf) in [(1920.0, 1080.0, 1.0), (3024.0, 1964.0, 2.0), (3840.0, 2160.0, 1.5)] {
+            let m = MonitorInfo { x: 0.0, y: 0.0, width: w, height: h, scale_factor: sf };
+            assert_eq!(
+                calculate_island_float_anchor(m, ENV, Position::Center),
+                calculate_island_anchor(m, ENV.width),
+            );
+        }
+    }
+
+    #[test]
+    fn float_left_hugs_left_edge_with_margin() {
+        // 1x @ origin: left edge + 12px margin, top of monitor.
+        let m = MonitorInfo { x: 0.0, y: 0.0, width: 1920.0, height: 1080.0, scale_factor: 1.0 };
+        let pos = calculate_island_float_anchor(m, ENV, Position::Left);
+        assert_eq!(pos.x, 12.0);
+        assert_eq!(pos.y, 0.0);
+
+        // 2x retina: logical origin still 0; margin is a logical value, not scaled twice.
+        let r = MonitorInfo { x: 0.0, y: 0.0, width: 3024.0, height: 1964.0, scale_factor: 2.0 };
+        let rp = calculate_island_float_anchor(r, ENV, Position::Left);
+        assert_eq!(rp.x, 12.0);
+        assert_eq!(rp.y, 0.0);
+
+        // Secondary monitor offset (physical x 1920 @ 1x) -> logical left edge + margin.
+        let s = MonitorInfo { x: 1920.0, y: 0.0, width: 2560.0, height: 1440.0, scale_factor: 1.0 };
+        assert_eq!(calculate_island_float_anchor(s, ENV, Position::Left).x, 1932.0);
+    }
+
+    #[test]
+    fn float_right_hugs_right_edge_with_margin() {
+        // 1x: right edge - envelope width - margin = 1920 - 600 - 12 = 1308.
+        let m = MonitorInfo { x: 0.0, y: 0.0, width: 1920.0, height: 1080.0, scale_factor: 1.0 };
+        let pos = calculate_island_float_anchor(m, ENV, Position::Right);
+        assert_eq!(pos.x, 1308.0);
+        assert_eq!(pos.y, 0.0);
+
+        // 4k @ 1.5x -> logical width 2560: 2560 - 600 - 12 = 1948.
+        let k = MonitorInfo { x: 0.0, y: 0.0, width: 3840.0, height: 2160.0, scale_factor: 1.5 };
+        assert_eq!(calculate_island_float_anchor(k, ENV, Position::Right).x, 1948.0);
+
+        // The frame stays fully on-screen: right edge (x + width) <= logical width.
+        assert!(pos.x + ENV.width <= 1920.0);
+    }
+
+    #[test]
+    fn float_bottom_center_anchors_frame_bottom_above_edge() {
+        // Horizontally centered like Center; frame bottom sits 12px above the monitor bottom.
+        // 1x 1080p: x = (1920-600)/2 = 660; y = 1080 - 560 - 12 = 508.
+        let m = MonitorInfo { x: 0.0, y: 0.0, width: 1920.0, height: 1080.0, scale_factor: 1.0 };
+        let pos = calculate_island_float_anchor(m, ENV, Position::BottomCenter);
+        assert_eq!(pos.x, 660.0);
+        assert_eq!(pos.y, 508.0);
+        // Frame bottom is exactly FLOAT_EDGE_MARGIN above the monitor bottom.
+        assert_eq!(pos.y + ENV.height, 1080.0 - FLOAT_EDGE_MARGIN);
+
+        // 2x retina (logical 1512 x 982): x = (1512-600)/2 = 456; y = 982 - 560 - 12 = 410.
+        let r = MonitorInfo { x: 0.0, y: 0.0, width: 3024.0, height: 1964.0, scale_factor: 2.0 };
+        let rp = calculate_island_float_anchor(r, ENV, Position::BottomCenter);
+        assert_eq!(rp.x, 456.0);
+        assert_eq!(rp.y, 410.0);
+    }
+
+    #[test]
+    fn notch_mode_ignores_position_and_stays_top_center() {
+        // Invariant e: in notch mode every position resolves to the top-center anchor.
+        let m = MonitorInfo { x: 0.0, y: 0.0, width: 1920.0, height: 1080.0, scale_factor: 1.0 };
+        let top_center = calculate_island_anchor(m, ENV.width);
+        for position in [Position::Left, Position::Center, Position::Right, Position::BottomCenter] {
+            assert_eq!(island_anchor_for(m, ENV, Mode::Notch, position), top_center);
+        }
+    }
+
+    #[test]
+    fn float_mode_dispatch_matches_the_float_anchor() {
+        let m = MonitorInfo { x: 0.0, y: 0.0, width: 1920.0, height: 1080.0, scale_factor: 1.0 };
+        for position in [Position::Left, Position::Center, Position::Right, Position::BottomCenter] {
+            assert_eq!(
+                island_anchor_for(m, ENV, Mode::Float, position),
+                calculate_island_float_anchor(m, ENV, position),
+            );
+        }
     }
 
     #[test]

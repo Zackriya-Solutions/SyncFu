@@ -26,26 +26,59 @@ export interface NotchDims {
 /** Round to 2 decimals - the mockup's path-precision quantum (parity TOL 0.01). */
 const n = (v: number): number => Math.round(v * 100) / 100;
 
+/** Clamp the shoulders so content can never invert them regardless of input. */
+function clampRadii(W: number, H: number, t: number, b: number): [number, number] {
+  t = Math.max(0, Math.min(t, W / 4, H / 4));
+  b = Math.max(0, Math.min(b, W / 4, H / 2));
+  return [t, b];
+}
+
+/**
+ * The single notch segment generator. `fy` maps each y in `[0, H]` to the emitted
+ * y coordinate: `notchPath` passes the identity (concave shoulders on top);
+ * `notchPathMirrored` passes `y => H - y` (a pure vertical flip - concave
+ * shoulders on the BOTTOM, for the flush bottom-center island). Both callers reuse
+ * this ONE segment math, so the mirror is a y-flip, not a second generator.
+ */
+function buildNotch(
+  W: number,
+  H: number,
+  t: number,
+  b: number,
+  fy: (y: number) => number
+): string {
+  return (
+    `M 0 ${n(fy(0))}` +
+    ` Q ${n(t)} ${n(fy(0))} ${n(t)} ${n(fy(t))}` +
+    ` L ${n(t)} ${n(fy(H - b))}` +
+    ` Q ${n(t)} ${n(fy(H))} ${n(t + b)} ${n(fy(H))}` +
+    ` L ${n(W - t - b)} ${n(fy(H))}` +
+    ` Q ${n(W - t)} ${n(fy(H))} ${n(W - t)} ${n(fy(H - b))}` +
+    ` L ${n(W - t)} ${n(fy(t))}` +
+    ` Q ${n(W - t)} ${n(fy(0))} ${n(W)} ${n(fy(0))}` +
+    ` Z`
+  );
+}
+
 /**
  * SVG path `d` for the notch shape. Clamps `t<=min(W/4,H/4)`, `b<=min(W/4,H/2)`,
  * both `>=0`, so content can never invert the shoulder regardless of caller input.
  */
 export function notchPath({ W, H, t, b }: NotchDims): string {
-  t = Math.min(t, W / 4, H / 4);
-  t = Math.max(0, t);
-  b = Math.min(b, W / 4, H / 2);
-  b = Math.max(0, b);
-  return (
-    `M 0 0` +
-    ` Q ${n(t)} 0 ${n(t)} ${n(t)}` +
-    ` L ${n(t)} ${n(H - b)}` +
-    ` Q ${n(t)} ${n(H)} ${n(t + b)} ${n(H)}` +
-    ` L ${n(W - t - b)} ${n(H)}` +
-    ` Q ${n(W - t)} ${n(H)} ${n(W - t)} ${n(H - b)}` +
-    ` L ${n(W - t)} ${n(t)}` +
-    ` Q ${n(W - t)} 0 ${n(W)} 0` +
-    ` Z`
-  );
+  const [ct, cb] = clampRadii(W, H, t, b);
+  return buildNotch(W, H, ct, cb, (y) => y);
+}
+
+/**
+ * Vertically-mirrored notch shape for the flush bottom-center island (T8). The
+ * concave shoulders sit on the BOTTOM edge (hugging the bottom the way the notch
+ * hugs the top), the convex rounds on top - a "bottom notch" / volume-OSD form.
+ * Reuses `notchPath`'s exact segment math via a `y => H - y` flip (same clamps,
+ * same precision), so parity with the top notch is structural.
+ */
+export function notchPathMirrored({ W, H, t, b }: NotchDims): string {
+  const [ct, cb] = clampRadii(W, H, t, b);
+  return buildNotch(W, H, ct, cb, (y) => H - y);
 }
 
 /**
