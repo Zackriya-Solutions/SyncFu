@@ -281,3 +281,9 @@ world - newest data point for the A1 finding).
   Reviewer's baseline-environment observation noted for T11/CI (visual baselines are
   machine-sensitive; canonical runner needed).
 - T6 Model B dispatching (last feature task).
+- STRAY PROCESSES: user reported many syncfu instances. Root cause: review agents' cargo test runs
+  hit bash timeouts which kill the shell but NOT the test process tree - two generations of the CLI
+  integration binary + their --wait children were stuck against dead wiremock ports (NOT the user's
+  live daemon; no screen impact). Killed by PID; user's /Applications/syncfu.app untouched. NOTE for
+  T11/RELEASE-CHECKLIST: integration tests spawning --wait CLIs should carry hard process timeouts;
+  agent gate runs should avoid backgrounding cargo test without cleanup.
