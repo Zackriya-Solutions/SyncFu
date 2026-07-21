@@ -1,0 +1,152 @@
+/* Dynamic Island static styles (T4a). Ported from the approved mockup rev 8
+ * (.di-compact / .di-expanded anatomy). The capsule SHAPE is an inline SVG
+ * (Island.tsx) rendered behind this content; these rules only lay out and color
+ * the content. The 27 `--s-*` overrides resolve through the SAME buildStyleVars
+ * map as the card (invariant c), so any subset the island shows matches the card.
+ *
+ * No morph/transition here - T4b owns motion. Fixed transparent envelope; the
+ * island is centered at the top of its window. */
+
+.island-root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  background: transparent;
+  pointer-events: none;
+}
+
+/* The visible capsule. Width/height come from Island.tsx (match the SVG box). */
+.di-island {
+  position: relative;
+  pointer-events: auto;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.55));
+}
+
+/* Inline SVG notch shape, stretched to the capsule box behind the content. */
+.di-shape {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+/* Content sits above the shape in normal flow, so its natural height drives the
+ * expanded capsule height (Island.tsx measures it). Horizontal padding is
+ * applied inline from wallPadding (R-WALL); vertical padding is per-state below. */
+.di-content {
+  position: relative;
+  z-index: 1;
+}
+
+/* Compact: fixed-height pill, content vertically centered. */
+.di-island[data-state="compact"] .di-content {
+  height: 100%;
+  display: flex;
+  align-items: center;
+}
+
+/* ---- Compact pill -------------------------------------------------------- */
+.di-compact {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+}
+
+.di-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--s-accent-color, #4a9eff);
+  box-shadow: 0 0 9px var(--s-accent-color, #4a9eff);
+  flex: none;
+}
+
+.di-sender {
+  font-family: ui-monospace, "SF Mono", "Menlo", monospace;
+  font-size: 11.5px;
+  color: var(--s-sender-color, #f2f4f8);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Trailing live-activity slot: pushed to the right, filled in T4b/T5b. */
+.di-trailing {
+  margin-left: auto;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* ---- Expanded card ------------------------------------------------------- */
+.di-expanded {
+  width: 100%;
+  padding: 11px 0 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.di-erow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.di-icon {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  background: var(--s-icon-bg, rgba(74, 158, 255, 0.12));
+  color: var(--s-icon-color, #4a9eff);
+  border: 0.5px solid var(--s-icon-border-color, rgba(74, 158, 255, 0.2));
+}
+
+.di-etext {
+  min-width: 0;
+  flex: 1;
+}
+
+.di-ehead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.di-ehead .di-sender {
+  color: var(--s-sender-color, #9aa4b4);
+  font-size: 10.5px;
+}
+
+.di-ehead .notification-time {
+  font-family: ui-monospace, "SF Mono", "Menlo", monospace;
+  font-size: 10.5px;
+  color: var(--s-time-color, #9aa4b4);
+  flex: none;
+}
+
+.di-title {
+  color: var(--s-title-color, #f4f6fa);
+  font-size: var(--s-title-font-size, 13px);
+  font-weight: 600;
+  line-height: 1.15;
+  margin-top: 2px;
+}
+
+.di-msg {
+  color: var(--s-body-color, #c7cedd);
+  font-size: var(--s-body-font-size, 12px);
+  line-height: 1.4;
+  margin-top: 4px;
+}

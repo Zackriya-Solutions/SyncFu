@@ -4,6 +4,7 @@ import { attachConsole } from "@tauri-apps/plugin-log";
 import { App } from "./App";
 import "./styles/globals.css";
 import "./styles/overlay.css";
+import "./styles/island.css";
 import "./styles/app.css";
 import "./styles/animations.css";
 

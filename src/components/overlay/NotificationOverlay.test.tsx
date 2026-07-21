@@ -59,6 +59,22 @@ describe("NotificationOverlay", () => {
     expect(screen.queryAllByTestId("notification-card")).toHaveLength(0);
   });
 
+  it("excludes island-presentation notifications (guard G1, defense in depth)", () => {
+    useNotificationStore.getState().add(
+      makeNotification({ id: "c1", title: "Card One", presentation: "card" })
+    );
+    useNotificationStore.getState().add(
+      makeNotification({ id: "i1", title: "Island One", presentation: "island" })
+    );
+
+    render(<NotificationOverlay />);
+
+    // The top-right panel renders the card but never the island item.
+    expect(screen.getByText("Card One")).toBeInTheDocument();
+    expect(screen.queryByText("Island One")).not.toBeInTheDocument();
+    expect(screen.queryAllByTestId("notification-card")).toHaveLength(1);
+  });
+
   it("dismisses notification when dismiss button clicked", () => {
     vi.useFakeTimers();
     useNotificationStore.getState().add(
