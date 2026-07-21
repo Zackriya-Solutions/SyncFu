@@ -314,3 +314,12 @@ world - newest data point for the A1 finding).
   routing + Model B ranking + card regression PASS. Zero functional defects on first live run.
   Gaps reported: F1 no HTTP snapshot surface (probe route used); F2 SYNCFU_PORT env override would
   make the app CI-spawnable. RELEASE-CHECKLIST.md written. Commit 78a02f0. Final review dispatched.
+- T11 REVIEW: CLEAN. Reviewer independently RE-RAN the journey (20/20) and proved the CLI hit the
+  ephemeral harness (hasWaiter evidence), verified example excluded from workspace check, cleanup
+  clean, user's app untouched. 2 LOW advisories applied by orchestrator (R-SSE carried in checklist
+  + F1/F2 testability recommendations). MERGED. 17/17 COMPLETE.
+
+## RUN COMPLETE (2026-07-21)
+All 17 tasks merged into feat/dynamic-island. 17 second-eyes reviews (every finding fixed and
+reverified). Final full-gate sweep running; final PR next (never auto-merged; user reviews).
+Worktrees preserved: t5b, t6, t10, t11 (earlier 13 removed on user instruction).
