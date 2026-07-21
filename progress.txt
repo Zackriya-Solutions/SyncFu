@@ -293,3 +293,11 @@ world - newest data point for the A1 finding).
   spec; 134 Rust + 182 vitest green. MERGED (15/17). Ponytail: ~90-line IslandGroup duplication
   adjudicated as forced isolation cost; post-merge useIslandMorph extraction noted as follow-up.
 - T10 dispatching (docs + history wiring + PRD amendments).
+- T10 RETURNED: docs (README island section + honest capture matrix + CHEATSHEET), history wiring
+  REDESIGNED for post-T6 reality (backend history:add broadcast at 3 send sites + main-window
+  useHistoryIngest + idempotent prependEntry - the TODO's useNotifications premise was stale),
+  6 PRD amendments + invariant-b applied with changelog. Worker self-caught two doc-vs-code drifts
+  (unknown-presentation 422 not fallback; radius ranges 0-24/0-40 shipped vs synthesis 0-20/0-30).
+  FLAG adjudicated by orchestrator: PRD FR-1 amended to strict-validation semantics (consistent
+  with priority; loud failure beats wrong presentation). 193 vitest + 36 playwright green.
+  Commits e402342 + FR-1 amendment. Review dispatched (docs-vs-code audit).
