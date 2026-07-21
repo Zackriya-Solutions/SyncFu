@@ -249,3 +249,13 @@ world - newest data point for the A1 finding).
   step unverifiable in review due to ENOSPC but worker ran it green twice pre-exhaustion. MERGED.
   11/17. Note for T8 merge: backend/store-level notch+bottom-center rejection guard suggested when
   T8 activates positioning.
+- T8 RETURNED: appearance + positions complete. Elegant calls: bottom-center = pure CSS flex-end
+  (zero JS anchor awareness); mirror = shared buildNotch(fy) y-flip; auto-appearance sync seed fix
+  (no dark flash). 6 anchor tests + 130 vitest + 92 playwright x2. Commit 88cc1eb. Review dispatched
+  WITH trial-merge check vs T7b-bearing integration (both touched Island.tsx/islandMorph.ts).
+- T8 MERGE: executed per reviewer conflict map (import unions, ordered creation effect
+  configure->snap->setSurface, both live effects kept, silent duplicate `settings` declaration
+  resolved). Applied reviewer's LOW polish: light fills now honor --di-surface-opacity (2 test
+  assertions updated to match). tsc + 142 vitest green; playwright + cargo running.
+- T5a WORKER STALLED near token guard waiting on post-clean cold cargo build (~340 lines
+  near-complete uncommitted). Resumed via SendMessage with economy finish order: gates -> commit.

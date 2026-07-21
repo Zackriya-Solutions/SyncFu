@@ -19,13 +19,23 @@ import {
   createSpringLoop,
   type SpringLoop,
 } from "./spring";
-import { notchPath, RADII } from "./notchPath";
+import { notchPath, notchPathMirrored, RADII } from "./notchPath";
 import {
   DEFAULT_ISLAND_SETTINGS,
   type IslandSettings,
+  type IslandMode,
 } from "@/types/islandSettings";
 
 export type IslandState = "compact" | "expanded";
+
+/** Surface inputs the appearance/position layer (T8) feeds the controller:
+ *  `light` (resolved dark/light/auto), `mode` (float compact pills go light too),
+ *  and `mirrored` (bottom-center flips the notch path vertically). */
+export interface IslandSurface {
+  readonly light: boolean;
+  readonly mode: IslandMode;
+  readonly mirrored: boolean;
+}
 
 declare global {
   interface Window {
@@ -63,6 +73,15 @@ const COMPACT_FILL = "#000000";
 const EXPANDED_FILL =
   "var(--s-card-bg, rgba(13,13,15, var(--di-surface-opacity, 0.94)))";
 
+/** Light-appearance surfaces (D4), ported from the mockup's applyFill: the frosted
+ *  light card (rgb 244,244,246 == #f4f4f6) and the light float compact pill
+ *  (rgb 233,233,238 == #e9e9ee), both at the default 0.94 fill alpha. The notch
+ *  compact pill NEVER uses these - it stays literal `#000000` (invariant d). */
+// Light fills honor the live surface-opacity var (post-merge polish: T7b's
+// opacity knob must restyle light surfaces too, matching the mockup applyFill).
+const EXPANDED_LIGHT_FILL = "rgba(244,244,246, var(--di-surface-opacity, 0.94))";
+const COMPACT_FLOAT_LIGHT_FILL = "rgba(233,233,238, var(--di-surface-opacity, 0.94))";
+
 export interface MorphElements {
   readonly island: HTMLElement;
   readonly svg: SVGSVGElement;
@@ -91,6 +110,10 @@ export interface MorphController {
   /** One-shot content measure -> rounding-guarded sH retarget (expanded only).
    *  Safe to call from a ResizeObserver; the rounding guard stops feedback. */
   measure(): void;
+  /** Update the appearance/position surface (T8): re-fills the shape (light card /
+   *  light float pill vs the untouched dark path) and, when `mirrored` changes,
+   *  repaints the current geometry with the flipped notch generator. Never morphs. */
+  setSurface(surface: IslandSurface): void;
   /** Cancel the pending frame AND the pending one-shot measure (R-RAF-DISPOSE). */
   dispose(): void;
 }
@@ -130,6 +153,12 @@ export function createMorphController(els: MorphElements): MorphController {
   let state: IslandState = "compact";
   let pendingMeasure: number | null = null;
 
+  // Appearance/position surface (T8), defaulting to the dark top notch so the very
+  // first paint (before setSurface) matches the pre-T8 behavior exactly.
+  let light = false;
+  let surfaceMode: IslandMode = "notch";
+  let mirrored = false;
+
   /** Write the live geometry to the DOM. Path `d` + `--di-wall` are the wall
    *  inset content padding derives from (R-WALL), republished every frame.
    *  `autoHeight` leaves the box height to the in-flow content (expanded AT
@@ -148,12 +177,25 @@ export function createMorphController(els: MorphElements): MorphController {
     svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
     svg.setAttribute("width", `${W}`);
     svg.setAttribute("height", `${H}`);
-    path.setAttribute("d", notchPath({ W, H, t, b }));
+    // Bottom-center flips the notch vertically (concave shoulders on the bottom);
+    // every other position/mode uses the top notch. The `--di-wall` inset is `t`
+    // either way (the shoulders are inset by `t` horizontally in both).
+    path.setAttribute("d", (mirrored ? notchPathMirrored : notchPath)({ W, H, t, b }));
     island.style.setProperty("--di-wall", `${t.toFixed(1)}px`);
   }
 
+  /** Choose the shape fill for a state. The compact notch pill stays literal
+   *  `#000000` in EVERY appearance (invariant d - do not touch that path); light
+   *  restyles ONLY the expanded card and the float compact pill. */
   function applyFill(next: IslandState): void {
-    path.setAttribute("fill", next === "expanded" ? EXPANDED_FILL : COMPACT_FILL);
+    const lightSurface = light && (next === "expanded" || surfaceMode === "float");
+    let fill: string;
+    if (lightSurface) {
+      fill = next === "expanded" ? EXPANDED_LIGHT_FILL : COMPACT_FLOAT_LIGHT_FILL;
+    } else {
+      fill = next === "expanded" ? EXPANDED_FILL : COMPACT_FILL;
+    }
+    path.setAttribute("fill", fill);
   }
 
   const loop: SpringLoop = createSpringLoop((dt) => {
@@ -276,6 +318,19 @@ export function createMorphController(els: MorphElements): MorphController {
       loop.kick();
     },
     measure,
+    setSurface(surface) {
+      light = surface.light;
+      surfaceMode = surface.mode;
+      const mirrorChanged = mirrored !== surface.mirrored;
+      mirrored = surface.mirrored;
+      applyFill(state);
+      // A mirror flip changes the path generator, so repaint the current geometry
+      // (no morph - D3). Fill-only changes need no repaint; applyFill did the work.
+      if (mirrorChanged) {
+        const resting = sW.resting && sH.resting && sT.resting && sB.resting;
+        paint(sW.x, sH.x, sT.x, sB.x, resting && state === "expanded");
+      }
+    },
     dispose() {
       loop.dispose();
       if (pendingMeasure != null) {

@@ -7,6 +7,11 @@ import {
   useState,
 } from "react";
 import type { NotificationPayload } from "@/types/notification";
+import type {
+  IslandAppearance,
+  IslandMode,
+  IslandPosition,
+} from "@/types/islandSettings";
 import { useIslandSettingsStore } from "@/stores/islandSettingsStore";
 import { buildStyleVars } from "@/lib/styleVars";
 import {
@@ -51,30 +56,74 @@ function prefersReducedMotion(): boolean {
   );
 }
 
+/** Resolve `appearance` to "is the surface light?" NOW. `auto` reads the OS
+ *  `prefers-color-scheme` synchronously so the very first paint is already correct
+ *  (no dark->light flash on a light-OS system). jsdom (no matchMedia) -> dark,
+ *  matching `prefersReducedMotion`'s guard. */
+function resolveLightNow(appearance: IslandAppearance): boolean {
+  if (appearance !== "auto") return appearance === "light";
+  return !!(
+    typeof window !== "undefined" &&
+    window.matchMedia &&
+    window.matchMedia("(prefers-color-scheme: light)").matches
+  );
+}
+
+/** Live wrapper around `resolveLightNow`: `auto` also subscribes to the media
+ *  query so a mid-display OS theme flip restyles the shown island without a
+ *  resend. Seeded synchronously, so the first paint never flashes. */
+function useResolvedLight(appearance: IslandAppearance): boolean {
+  const [light, setLight] = useState<boolean>(() => resolveLightNow(appearance));
+  useEffect(() => {
+    setLight(resolveLightNow(appearance));
+    if (appearance !== "auto" || typeof window === "undefined" || !window.matchMedia) {
+      return;
+    }
+    const mq = window.matchMedia("(prefers-color-scheme: light)");
+    const update = () => setLight(mq.matches);
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, [appearance]);
+  return light;
+}
+
 interface IslandProps {
   readonly notification: NotificationPayload;
   /** Optional CONTROLLED state. When set, the island is pinned to it (springs
    *  snapped, no auto-collapse) - used by the static render harness and unit
    *  tests. Omit it for the production lifecycle (arrive expanded -> collapse). */
   readonly state?: IslandState;
+  /** Optional appearance/position OVERRIDES. Omitted in production (the values
+   *  come from the settings store); the render/e2e harnesses pass them per cell so
+   *  dark/light/auto and the four positions render side by side under one store. */
+  readonly appearance?: IslandAppearance;
+  readonly mode?: IslandMode;
+  readonly position?: IslandPosition;
 }
 
 export const Island = forwardRef<IslandHandle, IslandProps>(function Island(
-  { notification, state },
+  { notification, state, appearance: appearanceProp, mode: modeProp, position: positionProp },
   ref
 ) {
-  const islandRef = useRef<HTMLDivElement>(null);
-  const svgRef = useRef<SVGSVGElement>(null);
-  const pathRef = useRef<SVGPathElement>(null);
-  const contentRef = useRef<HTMLDivElement>(null);
-  const controllerRef = useRef<MorphController | null>(null);
-
   // Persistent island settings (D4). Read at creation (initial geometry) AND
   // subscribed to for live restyle (T7b): the island window's store is seeded by
   // get_island_settings and updated by the `island:settings` event (two
   // independent paths, both funnel through here). Held in a ref too so the morph
   // call sites can read `reducedMotion` without re-subscribing their effects.
+  // Appearance + position (T8) derive from the same subscription; explicit props
+  // override (harness/tests). mirrored == flush bottom-center notch flip (float only).
   const settings = useIslandSettingsStore((s) => s.settings);
+  const appearance = appearanceProp ?? settings.appearance;
+  const mode = modeProp ?? settings.mode;
+  const position = positionProp ?? settings.position;
+  const isLight = useResolvedLight(appearance);
+  const mirrored = mode === "float" && position === "bottom-center";
+
+  const islandRef = useRef<HTMLDivElement>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const pathRef = useRef<SVGPathElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const controllerRef = useRef<MorphController | null>(null);
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
   const isReduced = () => settingsRef.current.reducedMotion || prefersReducedMotion();
@@ -117,6 +166,9 @@ export const Island = forwardRef<IslandHandle, IslandProps>(function Island(
     // first paint already has the user's geometry (no snap-then-jump).
     controller.configure(settingsRef.current);
     controller.snap(renderStateRef.current, isReduced());
+    // Apply the initial surface (light card / float pill / mirrored path) before
+    // the first paint so appearance is correct on arrival, not one frame late.
+    controller.setSurface({ light: isLight, mode, mirrored });
 
     const onClose = () => controller.dispose();
     window.addEventListener("beforeunload", onClose);
@@ -160,6 +212,12 @@ export const Island = forwardRef<IslandHandle, IslandProps>(function Island(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings]);
 
+  // Live appearance/position updates (T8): re-fill and, on a mirror flip, repaint
+  // the shape in place (no morph, D3). Runs after the mount snap's initial setSurface.
+  useEffect(() => {
+    controllerRef.current?.setSurface({ light: isLight, mode, mirrored });
+  }, [isLight, mode, mirrored]);
+
   // Re-measure expanded content when it changes size (rounding-guarded retarget).
   useEffect(() => {
     if (renderState !== "expanded") return;
@@ -184,10 +242,14 @@ export const Island = forwardRef<IslandHandle, IslandProps>(function Island(
   // SVG path (`var(--s-card-bg, ...)`) and the content (invariant c). Compact
   // keeps its hardcoded #000000 fill and never reads these (invariant d).
   const styleVars = buildStyleVars(notification.style, notification.font);
+  // Light appearance re-skins content text to a dark ink ramp on the SAME surfaces
+  // the controller lightens (expanded card + float compact pill); the notch
+  // compact pill keeps its light text on the black fill (invariant d).
+  const lightContent = isLight && (expanded || mode === "float");
 
   return (
     <div
-      className="di-island"
+      className={lightContent ? "di-island di-light-content" : "di-island"}
       data-testid="island"
       data-state={renderState}
       style={styleVars}

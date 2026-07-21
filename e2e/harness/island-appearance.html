@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Dynamic Island appearance harness</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        /* Neutral mid-tone backdrop so BOTH the dark and light frosted surfaces
+           read with contrast in one page. */
+        background: linear-gradient(160deg, #4a4658 0%, #3a4a63 50%, #2a3a4d 100%);
+      }
+      #root {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        gap: 48px;
+        padding: 48px;
+      }
+      .cell {
+        position: relative;
+        display: flex;
+        justify-content: center;
+        min-width: 400px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./island-appearance.tsx"></script>
+  </body>
+</html>

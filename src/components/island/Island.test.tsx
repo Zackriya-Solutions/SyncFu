@@ -103,6 +103,99 @@ describe("Island", () => {
     expect(island.style.getPropertyValue("--s-accent-color")).toBe("#123456");
   });
 
+  // --- Appearance (dark/light/auto) + position (T8) ---
+
+  it("keeps the notch compact pill pure black in LIGHT appearance (invariant d)", () => {
+    // The whole point of T8's guard: light appearance must NOT lighten the notch
+    // compact pill - it hugs the physical black notch in every appearance.
+    const { container } = render(
+      <Island
+        notification={makeNotification()}
+        state="compact"
+        appearance="light"
+        mode="notch"
+      />
+    );
+    const path = container.querySelector(".di-shape path");
+    expect(path?.getAttribute("fill")).toBe("#000000");
+    // No light-content re-skin on the black notch pill.
+    expect(container.querySelector(".di-island")?.classList.contains("di-light-content")).toBe(
+      false
+    );
+  });
+
+  it("lightens the EXPANDED card surface + text in light appearance", () => {
+    const { container } = render(
+      <Island notification={makeNotification()} state="expanded" appearance="light" />
+    );
+    const island = container.querySelector(".di-island") as HTMLElement;
+    const path = container.querySelector(".di-shape path");
+    // Frosted light card fill (#f4f4f6 @ 0.94), not the dark var(--s-card-bg).
+    expect(path?.getAttribute("fill")).toBe(
+      "rgba(244,244,246, var(--di-surface-opacity, 0.94))"
+    );
+    // Dark ink ramp is applied via the light-content class.
+    expect(island.classList.contains("di-light-content")).toBe(true);
+  });
+
+  it("lightens the FLOAT compact pill in light appearance (not the notch pill)", () => {
+    const { container } = render(
+      <Island
+        notification={makeNotification()}
+        state="compact"
+        appearance="light"
+        mode="float"
+      />
+    );
+    const path = container.querySelector(".di-shape path");
+    // Light float pill fill (#e9e9ee @ 0.94).
+    expect(path?.getAttribute("fill")).toBe(
+      "rgba(233,233,238, var(--di-surface-opacity, 0.94))"
+    );
+    expect(container.querySelector(".di-island")?.classList.contains("di-light-content")).toBe(
+      true
+    );
+  });
+
+  it("keeps the dark expanded surface (no light-content) by default", () => {
+    const { container } = render(
+      <Island notification={makeNotification()} state="expanded" appearance="dark" />
+    );
+    const path = container.querySelector(".di-shape path");
+    expect(path?.getAttribute("fill")).toContain("--s-card-bg");
+    expect(container.querySelector(".di-island")?.classList.contains("di-light-content")).toBe(
+      false
+    );
+  });
+
+  it("mirrors the notch path vertically for flush bottom-center (float)", () => {
+    // Bottom-center flips the notch so the concave shoulders sit on the BOTTOM:
+    // a compact 218x34 pill starts at M 0 34 (the flipped origin), not M 0 0.
+    const { container } = render(
+      <Island
+        notification={makeNotification()}
+        state="compact"
+        mode="float"
+        position="bottom-center"
+      />
+    );
+    const path = container.querySelector(".di-shape path");
+    expect(path?.getAttribute("d")).toMatch(/^M 0 34/);
+  });
+
+  it("does NOT mirror the path for non-bottom-center positions", () => {
+    const { container } = render(
+      <Island
+        notification={makeNotification()}
+        state="compact"
+        mode="float"
+        position="left"
+      />
+    );
+    const path = container.querySelector(".di-shape path");
+    expect(path?.getAttribute("d")).toMatch(/^M 0 0/);
+  });
+
   it("publishes the expanded shoulder inset as --di-wall for the R-WALL padding", () => {
     // Content padding now derives from the morph-driven `--di-wall` in CSS
     // (max(16px, calc(var(--di-wall) + 5px)) = 24px for the expanded shoulder),

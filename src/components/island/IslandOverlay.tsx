@@ -66,6 +66,14 @@ export function IslandOverlay() {
   const islandItems = notifications.filter((n) => n.presentation === "island");
   const current = islandItems[0];
 
+  // Float position drives where the capsule sits inside the transparent envelope
+  // (the Rust window anchor moves the frame to the matching monitor edge). Notch
+  // mode ignores position entirely (invariant e) - force top-center there. The
+  // capsule fill/shape/appearance still come from the store inside Island; this
+  // root only lays the capsule out (alignment + bottom-anchor).
+  const { mode, position } = useIslandSettingsStore((s) => s.settings);
+  const layoutPosition = mode === "float" ? position : "center";
+
   // Hide the island window when it holds no island notification, mirroring the
   // overlay's hide-when-empty. The fixed envelope is NEVER resized (D3), so
   // there is no content-driven setSize here - only show/hide.
@@ -80,7 +88,12 @@ export function IslandOverlay() {
   // entry transition for each new notification. The window frame never resizes
   // (D3); only the inner island morphs.
   return (
-    <div data-testid="island-root" className="island-root">
+    <div
+      data-testid="island-root"
+      className="island-root"
+      data-mode={mode}
+      data-position={layoutPosition}
+    >
       {current && <Island key={current.id} notification={current} />}
     </div>
   );
