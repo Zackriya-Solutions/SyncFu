@@ -233,3 +233,19 @@ world - newest data point for the A1 finding).
   2600ms hold -> auto-collapse. Self-caught: 0.02px baseline drift (content-driven height at rest),
   first-frame dip (sync measure in setTargets), reduced-motion honesty (1000/100 is ~62 frames, now
   true snap). 114 vitest + 62 playwright x2. Commit 4258639. Review dispatched.
+- T4b REVIEW: CLEAN (A6 verified line-by-line; handoff re-derived seamless in range; remount
+  semantics correct). 2 LOW edge notes -> thought ledger for T5b/T6. MERGED. 10/17.
+- FAN-OUT: dispatching T5a + T7b + T8 in parallel (widest wave).
+- T7b RETURNED: settings UI (sidebar section beside History; 13 controls + presets + honest capture
+  status). Worker removed its own optimistic-reconcile race in review. islandMorph gained
+  configure()/applySettings(). 133 vitest + 72 playwright x2. Documented note: first island
+  appearance with non-default settings briefly animates from defaults (async get). Commit ff87a87.
+  Review dispatched. T5a + T8 still running.
+- DISK EMERGENCY: volume hit 100% (137MB free) mid-run, caught by T7b reviewer's ENOSPC. Freed
+  8.8GiB via cargo clean (shared target + stale 2026 copy) - sanctioned tooling only, no rm.
+  Workers pay one-time rebuild. Disk now 61%.
+- T7b REVIEW: no blockers (2 fidelity nits accepted: lock-note caption replaced by live status -
+  arguably better per T9; hex input dropped for native picker - ponytail-favorable). Playwright
+  step unverifiable in review due to ENOSPC but worker ran it green twice pre-exhaustion. MERGED.
+  11/17. Note for T8 merge: backend/store-level notch+bottom-center rejection guard suggested when
+  T8 activates positioning.
