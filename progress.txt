@@ -323,3 +323,10 @@ world - newest data point for the A1 finding).
 All 17 tasks merged into feat/dynamic-island. 17 second-eyes reviews (every finding fixed and
 reverified). Final full-gate sweep running; final PR next (never auto-merged; user reviews).
 Worktrees preserved: t5b, t6, t10, t11 (earlier 13 removed on user instruction).
+- FINAL SWEEP 4-failure POSTMORTEM: my demo-app build (cargo build -p syncfu for the user's sample
+  island) overwrote target/debug/syncfu WHILE the sweep's CLI integration tests spawned that path -
+  the documented binary-name collision live-firing. Isolated re-runs: app crate 136 green (even with
+  the app holding :9868), cli crate 69 green. Zero code defects; PR #5 stands. The collision +
+  no-concurrent-builds rule is already in RELEASE-CHECKLIST.md.
+- DEMO: new app running on :9868 (user-consented swap from production app); sample island decision
+  notification delivered. Old app relaunch: open /Applications/syncfu.app
