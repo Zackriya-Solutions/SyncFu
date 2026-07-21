@@ -259,3 +259,9 @@ world - newest data point for the A1 finding).
   assertions updated to match). tsc + 142 vitest green; playwright + cargo running.
 - T5a WORKER STALLED near token guard waiting on post-clean cold cargo build (~340 lines
   near-complete uncommitted). Resumed via SendMessage with economy finish order: gates -> commit.
+- T8 merge committed (573f182) after tsc+vitest green; CAUGHT a masked gate: playwright had not
+  actually run on the merged main tree (ERR_MODULE_NOT_FOUND - @playwright/test missing from main
+  repo node_modules, pipe swallowed the exit code). pnpm install + real playwright run now in
+  flight; will fix forward if red.
+- T8 merged tree FULLY verified: tsc + 142 vitest + 91 playwright (real exit 0) + cargo check.
+  12/17 merged. Awaiting T5a (resumed) - last blocker for T5b + T6.
