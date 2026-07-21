@@ -1,0 +1,33 @@
+# G2 live-probe evidence - macOS 26.5 (build 25F71) - 2026-07-21T07:08:48Z
+
+## [1] SCK availability + TCC permission state (sck_smoke.swift)
+SCK available at compile+runtime
+PERMISSION_OR_ERROR: The user declined TCCs for application, window, display capture
+
+## [2] Legacy screencapture CLI (system tool)
+$ screencapture -x /tmp/g2_full.png
+could not create image from display
+exit=1
+$ screencapture -R100,100,200,200 /tmp/g2_rect.png
+could not create image from rect
+exit=1
+
+## [3] Legacy CoreGraphics CGWindowListCreateImage (compile attempt)
+cg_probe.swift:5:11: error: 'CGWindowListCreateImage' is unavailable in macOS: Please use ScreenCaptureKit instead.
+   |           `- error: 'CGWindowListCreateImage' is unavailable in macOS: Please use ScreenCaptureKit instead.
+
+## [4] NSPanel ship-config sharingType read-back (nspanel_probe.swift)
+--- protect ON ---
+default sharingType (fresh NSPanel): readOnly(1)
+applied protect=true -> sharingType now: none(0)
+panel shown: isVisible=true frame=(200.0, 400.0, 400.0, 120.0) onActiveSpace=true
+post-show read-back sharingType: none(0)  <-- READ-BACK IS INSUFFICIENT AS PROOF
+collectionBehavior raw: 257
+done
+--- protect OFF (positive control) ---
+default sharingType (fresh NSPanel): readOnly(1)
+applied protect=false -> sharingType now: readOnly(1)
+panel shown: isVisible=true frame=(200.0, 400.0, 400.0, 120.0) onActiveSpace=true
+post-show read-back sharingType: readOnly(1)  <-- READ-BACK IS INSUFFICIENT AS PROOF
+collectionBehavior raw: 257
+done
