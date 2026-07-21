@@ -89,12 +89,15 @@
   width: 100%;
 }
 
+/* Accent resolution: a per-notification `accentColor` override wins; failing
+ * that the persistent island `accent` setting (--di-accent, published by the
+ * morph controller on settings change, T7b); failing that the default blue. */
 .di-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--s-accent-color, #4a9eff);
-  box-shadow: 0 0 9px var(--s-accent-color, #4a9eff);
+  background: var(--s-accent-color, var(--di-accent, #4a9eff));
+  box-shadow: 0 0 9px var(--s-accent-color, var(--di-accent, #4a9eff));
   flex: none;
 }
 

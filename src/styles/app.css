@@ -155,3 +155,266 @@
   font-size: 13px;
   color: var(--color-text-muted);
 }
+
+/* Island settings panel (T7b) */
+.island-settings {
+  max-width: 640px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.island-settings-head h2 {
+  font-size: 20px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.island-settings-head p {
+  font-size: 13px;
+  color: var(--color-text-dim);
+  line-height: 1.4;
+}
+
+.settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+
+.settings-group-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+.settings-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.settings-row.col {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.settings-row-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.settings-caption {
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--color-text-dim);
+  line-height: 1.35;
+  max-width: 380px;
+}
+
+.settings-value {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-accent);
+  white-space: nowrap;
+}
+
+.settings-row input[type="range"] {
+  width: 100%;
+  accent-color: var(--color-accent);
+}
+
+/* Segmented control */
+.settings-seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  flex-wrap: wrap;
+}
+
+.settings-seg-btn {
+  padding: 5px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-dim);
+  white-space: nowrap;
+}
+
+.settings-seg-btn.on {
+  background: var(--color-surface-hover);
+  color: var(--color-text);
+}
+
+.settings-seg-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Accent swatches */
+.settings-swatches {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.settings-swatch {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+}
+
+.settings-swatch.on {
+  border-color: var(--color-text);
+}
+
+.settings-swatch-custom {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: none;
+}
+
+/* Toggle switch */
+.settings-switch {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  flex: none;
+}
+
+.settings-switch input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.settings-switch-track {
+  width: 38px;
+  height: 22px;
+  border-radius: 11px;
+  background: var(--color-border);
+  position: relative;
+  transition: background var(--transition-fast);
+}
+
+.settings-switch-track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform var(--transition-fast);
+}
+
+.settings-switch input:checked + .settings-switch-track {
+  background: var(--color-accent);
+}
+
+.settings-switch input:checked + .settings-switch-track::after {
+  transform: translateX(16px);
+}
+
+.settings-switch input:focus-visible + .settings-switch-track {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* Capture status */
+.settings-capture {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.settings-capture-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-top: 4px;
+  flex: none;
+  background: var(--color-text-muted);
+}
+
+.settings-capture.on .settings-capture-dot {
+  background: var(--color-success);
+  box-shadow: 0 0 8px var(--color-success);
+}
+
+.settings-capture-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.settings-capture.on .settings-capture-label {
+  color: var(--color-success);
+}
+
+.settings-capture-reason {
+  font-size: 11.5px;
+  color: var(--color-text-dim);
+  line-height: 1.35;
+  margin-top: 2px;
+}
+
+/* Presets */
+.settings-presets {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.settings-preset {
+  padding: 7px 12px;
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+}
+
+.settings-preset:hover {
+  background: var(--color-surface-hover);
+}
+
+.settings-preset.reset {
+  margin-left: auto;
+  color: var(--color-text-dim);
+}

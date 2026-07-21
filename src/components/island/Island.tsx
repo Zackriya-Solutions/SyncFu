@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import type { NotificationPayload } from "@/types/notification";
+import { useIslandSettingsStore } from "@/stores/islandSettingsStore";
 import { buildStyleVars } from "@/lib/styleVars";
 import {
   createMorphController,
@@ -68,6 +69,16 @@ export const Island = forwardRef<IslandHandle, IslandProps>(function Island(
   const contentRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<MorphController | null>(null);
 
+  // Persistent island settings (D4). Read at creation (initial geometry) AND
+  // subscribed to for live restyle (T7b): the island window's store is seeded by
+  // get_island_settings and updated by the `island:settings` event (two
+  // independent paths, both funnel through here). Held in a ref too so the morph
+  // call sites can read `reducedMotion` without re-subscribing their effects.
+  const settings = useIslandSettingsStore((s) => s.settings);
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+  const isReduced = () => settingsRef.current.reducedMotion || prefersReducedMotion();
+
   const controlled = state != null;
   const [renderState, setRenderState] = useState<IslandState>(state ?? "expanded");
   const renderStateRef = useRef(renderState);
@@ -102,7 +113,10 @@ export const Island = forwardRef<IslandHandle, IslandProps>(function Island(
 
     const controller = createMorphController({ island, svg, path, content });
     controllerRef.current = controller;
-    controller.snap(renderStateRef.current, prefersReducedMotion());
+    // Creation-read path: adopt the persisted settings BEFORE arriving, so the
+    // first paint already has the user's geometry (no snap-then-jump).
+    controller.configure(settingsRef.current);
+    controller.snap(renderStateRef.current, isReduced());
 
     const onClose = () => controller.dispose();
     window.addEventListener("beforeunload", onClose);
@@ -125,8 +139,26 @@ export const Island = forwardRef<IslandHandle, IslandProps>(function Island(
       didMount.current = true;
       return;
     }
-    controller.animateTo(renderState, prefersReducedMotion());
+    controller.animateTo(renderState, isReduced());
+    // isReduced reads a ref; renderState is the only real trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [renderState]);
+
+  // Live restyle path (T7b): when settings change, re-target the CURRENT state's
+  // springs to the new geometry (animate, never snap - D3). The first run is
+  // skipped because configure() (in the creation effect) already adopted the
+  // initial settings; only genuine changes reach the controller here.
+  const settingsMounted = useRef(false);
+  useLayoutEffect(() => {
+    const controller = controllerRef.current;
+    if (!controller) return;
+    if (!settingsMounted.current) {
+      settingsMounted.current = true;
+      return;
+    }
+    controller.applySettings(settings, isReduced());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings]);
 
   // Re-measure expanded content when it changes size (rounding-guarded retarget).
   useEffect(() => {
