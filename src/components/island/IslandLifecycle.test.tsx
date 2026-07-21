@@ -100,6 +100,62 @@ describe("Island lifecycle - interruption state machine (single)", () => {
     expect(screen.queryByText("20%")).not.toBeInTheDocument();
   });
 
+  it("[compact + click] manual trigger re-expands, and the hold re-arms to collapse again", async () => {
+    vi.stubGlobal("requestAnimationFrame", () => 1);
+    vi.stubGlobal("cancelAnimationFrame", () => {});
+    await mount();
+    vi.useFakeTimers();
+
+    emitSnapshot(snapshotOf([makeNotification({ id: "clicky" })]));
+
+    // Entry: expanded -> auto-collapse.
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    expect(screen.getByTestId("island-compact")).toBeInTheDocument();
+
+    // Click the pill -> expands again (mockup toggle behavior).
+    act(() => {
+      screen.getByTestId("island").click();
+    });
+    expect(screen.getByTestId("island-expanded")).toBeInTheDocument();
+
+    // The hold RE-ARMS after a manual expand: it collapses again on its own.
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    expect(screen.getByTestId("island-compact")).toBeInTheDocument();
+  });
+
+  it("[expanded + click on an action button] never toggles; a plain surface click collapses", async () => {
+    vi.stubGlobal("requestAnimationFrame", () => 1);
+    vi.stubGlobal("cancelAnimationFrame", () => {});
+    await mount();
+    vi.useFakeTimers();
+
+    emitSnapshot(
+      snapshotOf([
+        makeNotification({
+          id: "btn",
+          actions: [{ id: "ok", label: "OK", style: "primary" }],
+        }),
+      ])
+    );
+    expect(screen.getByTestId("island-expanded")).toBeInTheDocument();
+
+    // Clicking the action button must NOT toggle the island shut.
+    act(() => {
+      screen.getByRole("button", { name: "OK" }).click();
+    });
+    expect(screen.getByTestId("island-expanded")).toBeInTheDocument();
+
+    // A plain click on the island surface collapses it (toggle).
+    act(() => {
+      screen.getByTestId("island").click();
+    });
+    expect(screen.getByTestId("island-compact")).toBeInTheDocument();
+  });
+
   it("[compact + progress update] refreshes the live-activity even after collapse (never stale)", async () => {
     vi.stubGlobal("requestAnimationFrame", () => 1);
     vi.stubGlobal("cancelAnimationFrame", () => {});

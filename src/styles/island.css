@@ -48,6 +48,7 @@
   align-items: flex-end;
 }
 .island-root[data-position="bottom-center"] .di-island {
+  cursor: pointer; /* click toggles compact<->expanded (mockup behavior) */
   transform-origin: bottom center;
 }
 

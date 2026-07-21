@@ -284,11 +284,22 @@ export const Island = forwardRef<IslandHandle, IslandProps>(function Island(
   // Ratified entry transition: arrive expanded, hold, auto-collapse to the pill.
   // Skipped while controlled (the harness/tests pin the state) AND for decisions,
   // which STAY EXPANDED until answered (invariant b; T4b auto-collapse suppressed).
+  // Keyed on renderState so a MANUAL expand (click trigger below) re-arms the
+  // hold and the island re-collapses after the same interval.
   useEffect(() => {
-    if (controlled || isDecision) return;
+    if (controlled || isDecision || renderState !== "expanded") return;
     const id = setTimeout(() => setRenderState("compact"), ENTRY_HOLD_MS);
     return () => clearTimeout(id);
-  }, [controlled, isDecision]);
+  }, [controlled, isDecision, renderState]);
+
+  // User click trigger: the island toggles compact<->expanded on click (the
+  // approved mockup's live behavior). Clicks on interactive children (action
+  // buttons) never toggle. No-op while controlled (state is pinned).
+  const handleToggle = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (controlled) return;
+    if ((e.target as HTMLElement).closest("button, a, input")) return;
+    setRenderState((s) => (s === "expanded" ? "compact" : "expanded"));
+  };
 
   // Auto-dismiss (parity with the card's exit-1 path): when the priority timeout
   // elapses, resolve the waiter as Dismissed via the host's `dismiss_notification`
@@ -318,6 +329,7 @@ export const Island = forwardRef<IslandHandle, IslandProps>(function Island(
       data-state={renderState}
       style={styleVars}
       ref={islandRef}
+      onClick={handleToggle}
     >
       <svg className="di-shape" preserveAspectRatio="none" aria-hidden="true" ref={svgRef}>
         <path ref={pathRef} />
