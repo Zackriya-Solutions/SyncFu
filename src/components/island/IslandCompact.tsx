@@ -13,7 +13,7 @@ import { progressPercent, ringDash } from "@/lib/progress";
 // event arriving after collapse re-renders this in place with the fresh value.
 
 /** Mini-ring radius in the shared 24x24 viewBox (sized down via CSS). */
-const RING_R = 10;
+const RING_R = 9; // mockup mini-ring radius (ringSVG(..., 9), mockup L1495)
 
 interface IslandCompactProps {
   readonly notification: NotificationPayload;

@@ -86,7 +86,7 @@ describe("IslandCompact live-activity", () => {
     );
     const live = screen.getByTestId("island-compact-progress");
     const fill = live.querySelector(".di-mini-fill") as SVGCircleElement;
-    const { dashOffset } = ringDash(0.3, 10);
+    const { dashOffset } = ringDash(0.3, 9);
     expect(fill.getAttribute("stroke-dashoffset")).toBe(String(dashOffset));
     expect(screen.getByText("30%")).toBeInTheDocument();
   });

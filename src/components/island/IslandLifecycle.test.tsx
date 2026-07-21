@@ -107,7 +107,7 @@ describe("Island lifecycle - interruption state machine", () => {
     const live = screen.getByTestId("island-compact-progress");
     const fill = live.querySelector(".di-mini-fill") as SVGCircleElement;
     expect(fill.getAttribute("stroke-dashoffset")).toBe(
-      String(ringDash(0.85, 10).dashOffset)
+      String(ringDash(0.85, 9).dashOffset)
     );
     expect(screen.getByText("85%")).toBeInTheDocument();
 

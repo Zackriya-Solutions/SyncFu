@@ -73,10 +73,11 @@ test("new notification mid-morph is latest-wins and the frame never resizes", as
       w < 379.5
     );
   });
+  // Mid-flight is proven ATOMICALLY by the waitForFunction above (non-settled,
+  // 218.5 < w < 379.5). A separate re-read here was racy: the spring overshoots
+  // the 380 target transiently (~380.13), flaking on webkit. Frame stability is
+  // asserted below via the root box.
   const rootMid = await root.boundingBox();
-  const midW = await islandWidth(page);
-  expect(midW).toBeGreaterThan(compactW);
-  expect(midW).toBeLessThan(380);
 
   // A NEW distinct notification arrives mid-morph -> latest-wins re-present (the
   // key remount snaps to the expanded controlled state; the old loop disposes).

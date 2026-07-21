@@ -419,6 +419,16 @@
 .di-light-content .di-ring-pct {
   color: rgba(0, 0, 0, 0.9);
 }
+/* Light surfaces: the white-translucent progress tracks vanish on a near-white
+ * card - swap the unfilled track to dark-translucent so the remaining arc/bar
+ * stays visible (T5b review F2). */
+.di-light-content .di-pbar {
+  background: rgba(0, 0, 0, 0.12);
+}
+.di-light-content .di-mini-track,
+.di-light-content .di-ring-track {
+  stroke: rgba(0, 0, 0, 0.12);
+}
 .di-light-content .di-ring-label {
   color: rgba(0, 0, 0, 0.62);
 }
