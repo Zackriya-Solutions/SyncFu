@@ -176,3 +176,20 @@ world - newest data point for the A1 finding).
 - T1 REVIEW: CLEAN (serde defaults verified per boundary; wire-body test spawns real binary; guards
   G8/G9/G12 hold; client.rs skip validated). MERGED into feat/dynamic-island.
 - Wave 0 COMPLETE: 4/4 tasks merged. Dispatching T3 (island window; consumes G1 recipe + T1 field).
+- T2 RETURNED: port complete (notchPath/spring/styleVars + Vite harness route). Drift decisions:
+  margins +4/+5/+2 canonical; float expanded radius 24 (D3 wins over mountStatic 22). 92 vitest +
+  40 playwright green x3. Worker self-caught 4 findings (wrong reduced-motion test invariant,
+  Vite IPv4 bind, dead prefersReducedMotion helper, em dashes). Commit 4b42e32. Review dispatched.
+- T3 RETURNED: island window + routing complete. Envelope 600x560 (range maxima); primary-monitor
+  targeting when notched (multi-notched-display deferral documented); card path byte-identical via
+  route_show_and_emit; island adds scoped emit_to("island") to prevent overlay state leak (FR-3).
+  90+22+32+12 tests green. Worker simplified own API (click-through), kept reflow_island per spec.
+  Commit 031e12a. Review dispatched.
+- T2 REVIEW: CLEAN (geometry byte-exact vs mockup; A6 eps/rounding/dispose verified; 27-entry map
+  identical; 40 playwright green incl T0 specs on the dual-webServer config). MERGED. Reviewer
+  observation: harness self-baselines (not pixel-diffed vs mockup shots) - correct call, golden
+  strings prove geometry; noted for the record.
+- T3 REVIEW: FINDINGS (1 MEDIUM: tray clear-all missed hide_island - third dismiss-all path; 2 LOW:
+  label single-source, comment em dashes). All fixed by orchestrator (mechanical), gates re-green
+  (90+22+32+12). MERGED. Reviewer observation carried to T4a: confirm 560px expanded list does not
+  clip under notch overhang (envelope has no top slack).
