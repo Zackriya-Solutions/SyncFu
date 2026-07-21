@@ -243,3 +243,77 @@
 .di-light-content .di-icon {
   border-color: rgba(0, 0, 0, 0.1);
 }
+
+/* ---- Actions (T5a) ------------------------------------------------------- */
+/* Ported from mockup rev 8 (.di-actions2 / .di-btn2). Primary maps to `accent`,
+ * danger to `danger`; secondary is the plain button. Per-action bg/color/border
+ * overrides arrive as inline styles (shared buildActionStyle, card parity). */
+.di-actions2 {
+  display: flex;
+  gap: 7px;
+  margin-top: 2px;
+}
+
+.di-btn2 {
+  flex: 1;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 550;
+  padding: 6px 0;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  color: var(--s-btn2-color, #e8ecf2);
+  background: var(--s-btn2-bg, rgba(255, 255, 255, 0.08));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+
+.di-btn2.accent {
+  background: var(--s-btn-bg, var(--s-accent-color, #4a9eff));
+  color: var(--s-btn-color, #06121f);
+}
+
+.di-btn2.danger {
+  background: var(--s-danger-bg, #ff3b30);
+  color: var(--s-danger-color, #fff);
+}
+
+/* ---- Auto-dismiss countdown (T5a) ---------------------------------------- */
+/* Bar reflects the priority timeout. It ANIMATES only when the notification will
+ * actually auto-dismiss (`.running`); a decision shows it full and paused
+ * (auto-dismiss paused while awaiting an answer). Reduced motion never animates
+ * it, so visual snapshots are deterministic (bar full). */
+.di-countdown {
+  margin-top: 6px;
+  height: 2px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.di-countdown-fill {
+  display: block;
+  height: 100%;
+  width: 100%;
+  transform-origin: left;
+  background: var(--s-countdown-color, var(--s-accent-color, #4a9eff));
+  opacity: 0.6;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .di-countdown-fill.running {
+    animation: di-countdown-shrink var(--countdown-duration) linear forwards;
+  }
+}
+
+@keyframes di-countdown-shrink {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}

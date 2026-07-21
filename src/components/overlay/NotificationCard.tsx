@@ -1,17 +1,11 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import type { NotificationPayload, Action } from "@/types/notification";
+import type { NotificationPayload } from "@/types/notification";
 import { NotificationIcon } from "./NotificationIcon";
 import { RelativeTime } from "./RelativeTime";
 import { useGoogleFont } from "@/hooks/useGoogleFont";
 import { buildStyleVars } from "@/lib/styleVars";
-
-/** Auto-dismiss timeouts by priority (ms). Critical never auto-dismisses. */
-const TIMEOUTS: Record<string, number | null> = {
-  low: 6000,
-  normal: 8000,
-  high: 12000,
-  critical: null,
-};
+import { resolveTimeout } from "@/lib/timeout";
+import { buildActionStyle } from "@/lib/actionStyle";
 
 const DISMISS_ANIM_MS = 280;
 
@@ -238,27 +232,4 @@ export function NotificationCard({
       )}
     </div>
   );
-}
-
-function resolveTimeout(
-  timeout: NotificationPayload["timeout"],
-  priority: string,
-): number | null {
-  if (timeout === "never") return null;
-  if (timeout === "default") return TIMEOUTS[priority] ?? 8000;
-  if (typeof timeout === "object" && timeout.never) return null;
-  if (typeof timeout === "object" && timeout.seconds) return timeout.seconds * 1000;
-  return TIMEOUTS[priority] ?? 8000;
-}
-
-/** Build per-action inline styles from action overrides */
-function buildActionStyle(action: Action): React.CSSProperties | undefined {
-  const { bg, color, borderColor } = action;
-  if (!bg && !color && !borderColor) return undefined;
-
-  const style: React.CSSProperties = {};
-  if (bg) style.background = bg;
-  if (color) style.color = color;
-  if (borderColor) style.borderColor = borderColor;
-  return style;
 }

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { event as tauriEvent, core } from "@tauri-apps/api";
 import { useNotifications } from "@/hooks/useNotifications";
@@ -25,8 +25,17 @@ export function IslandOverlay() {
   // Ingest ONLY island items into this window's shared store. Broadcast `card`
   // adds reach this window too; dropping them at ingest keeps them from consuming
   // MAX_VISIBLE slots and starving an island notification into the queue.
-  const { notifications } = useNotifications((n) => n.presentation === "island");
+  const { notifications, dismiss } = useNotifications((n) => n.presentation === "island");
   const setSettings = useIslandSettingsStore((s) => s.setSettings);
+
+  // Island action path == card action path (T5a parity, no new transport): a
+  // button click drives the SAME `action_callback` command ->
+  // WaiterRegistry.notify -> CLI exit 0. Mirrors NotificationOverlay.handleAction.
+  const handleAction = useCallback((notificationId: string, actionId: string) => {
+    core.invoke("action_callback", { notificationId, actionId }).catch((err) =>
+      console.error("[syncfu] action_callback failed:", err)
+    );
+  }, []);
 
   // Transparent window background (same Cap pattern as the overlay panel).
   useEffect(() => {
@@ -94,7 +103,14 @@ export function IslandOverlay() {
       data-mode={mode}
       data-position={layoutPosition}
     >
-      {current && <Island key={current.id} notification={current} />}
+      {current && (
+        <Island
+          key={current.id}
+          notification={current}
+          onAction={handleAction}
+          onDismiss={dismiss}
+        />
+      )}
     </div>
   );
 }

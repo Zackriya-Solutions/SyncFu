@@ -24,7 +24,10 @@ const FIXTURE: NotificationPayload = {
   icon: "git-pull-request",
   priority: "normal",
   presentation: "island",
-  timeout: "default",
+  // `never` so the expanded card renders NO auto-dismiss countdown: this harness
+  // exercises the SHAPE morph under full motion, and a running countdown bar (an
+  // independent CSS animation) would make the settled screenshot vary run-to-run.
+  timeout: "never",
   actions: [],
   createdAt: NOW,
 };

@@ -17,6 +17,7 @@ const FIXTURES = [
   "expanded-rich-body",
   "expanded-critical",
   "expanded-styled-27",
+  "expanded-actions",
   "expanded-tall",
 ] as const;
 
@@ -24,6 +25,11 @@ test.beforeEach(async ({ page }) => {
   await page.goto(RENDER_URL);
   // Let React mount + the layout-effect content measurement settle.
   await page.locator("#cell-expanded-basic .di-expanded").waitFor();
+  // Wait for every cell's rAF morph loop to park (springs at rest, snapped to
+  // target). Any active controller re-writes the flag false each frame, so
+  // true means all islands are at their settled geometry - without this,
+  // toHaveScreenshot can capture a mid-settle frame (flaky 1px drift).
+  await page.waitForFunction(() => (window as any).__islandSettled === true);
 });
 
 for (const id of FIXTURES) {
@@ -52,6 +58,28 @@ test("styled-27 fixture wires overrides onto the expanded surface", async ({ pag
   // .di-island ancestor, so the computed fill resolves to the saturated green.
   const path = page.locator("#cell-expanded-styled-27 .di-shape path");
   await expect(path).toHaveCSS("fill", "rgba(16, 185, 129, 0.96)");
+});
+
+// T5a: a decision renders primary/danger buttons and a PAUSED countdown, while a
+// timed non-decision (expanded-basic) renders a RUNNING countdown. Both cover the
+// "actions + countdown render" acceptance against the real components.
+test("decision renders action buttons and a paused countdown", async ({ page }) => {
+  const cell = page.locator("#cell-expanded-actions");
+  const buttons = cell.locator(".di-actions2 .di-btn2");
+  await expect(buttons).toHaveCount(2);
+  await expect(buttons.nth(0)).toHaveClass(/accent/); // primary
+  await expect(buttons.nth(1)).toHaveClass(/danger/); // danger
+  // Countdown present but NOT running (auto-dismiss paused while awaiting answer).
+  await expect(cell.locator(".di-countdown-fill")).toBeVisible();
+  await expect(cell.locator(".di-countdown-fill.running")).toHaveCount(0);
+});
+
+test("timed non-decision renders a running countdown", async ({ page }) => {
+  // expanded-basic is normal-priority with the default timeout -> auto-dismisses,
+  // so its countdown bar is the running variant.
+  await expect(
+    page.locator("#cell-expanded-basic .di-countdown-fill.running")
+  ).toBeVisible();
 });
 
 // NOTCH-OVERHANG CHECK: the tall card grows downward and is never clipped by our

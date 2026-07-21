@@ -14,6 +14,7 @@ import type {
 } from "@/types/islandSettings";
 import { useIslandSettingsStore } from "@/stores/islandSettingsStore";
 import { buildStyleVars } from "@/lib/styleVars";
+import { resolveTimeout } from "@/lib/timeout";
 import {
   createMorphController,
   type IslandState,
@@ -99,10 +100,24 @@ interface IslandProps {
   readonly appearance?: IslandAppearance;
   readonly mode?: IslandMode;
   readonly position?: IslandPosition;
+  /** Action click handler. The host wires this to `invoke("action_callback")`,
+   *  joining the card's UNCHANGED action_callback -> waiter -> CLI exit-0 path. */
+  readonly onAction?: (notificationId: string, actionId: string) => void;
+  /** Auto-dismiss handler. The host wires this to `dismiss_notification`, the
+   *  same path the card uses -> waiter Dismissed -> CLI exit 1. */
+  readonly onDismiss?: (notificationId: string) => void;
 }
 
 export const Island = forwardRef<IslandHandle, IslandProps>(function Island(
-  { notification, state, appearance: appearanceProp, mode: modeProp, position: positionProp },
+  {
+    notification,
+    state,
+    appearance: appearanceProp,
+    mode: modeProp,
+    position: positionProp,
+    onAction,
+    onDismiss,
+  },
   ref
 ) {
   // Persistent island settings (D4). Read at creation (initial geometry) AND
@@ -229,13 +244,32 @@ export const Island = forwardRef<IslandHandle, IslandProps>(function Island(
     return () => observer.disconnect();
   }, [renderState, notification]);
 
+  // T5a parity: a notification carrying actions is a DECISION (the frontend proxy
+  // for a pending `--wait` waiter - the payload has no wait flag). Its priority
+  // auto-dismiss is the SHARED resolveTimeout (parity: no island-specific timing);
+  // critical resolves to null and never auto-dismisses.
+  const isDecision = notification.actions.length > 0;
+  const autoDismissMs = resolveTimeout(notification.timeout, notification.priority);
+
   // Ratified entry transition: arrive expanded, hold, auto-collapse to the pill.
-  // Skipped while controlled (the harness/tests pin the state).
+  // Skipped while controlled (the harness/tests pin the state) AND for decisions,
+  // which STAY EXPANDED until answered (invariant b; T4b auto-collapse suppressed).
   useEffect(() => {
-    if (controlled) return;
+    if (controlled || isDecision) return;
     const id = setTimeout(() => setRenderState("compact"), ENTRY_HOLD_MS);
     return () => clearTimeout(id);
-  }, [controlled]);
+  }, [controlled, isDecision]);
+
+  // Auto-dismiss (parity with the card's exit-1 path): when the priority timeout
+  // elapses, resolve the waiter as Dismissed via the host's `dismiss_notification`
+  // invoke. Suppressed for decisions (auto-dismiss paused while awaiting an answer
+  // - synthesis 1.1; a decision resolves via action/dismiss/CLI-timeout instead)
+  // and for critical (autoDismissMs === null, never auto-dismisses).
+  useEffect(() => {
+    if (controlled || isDecision || autoDismissMs === null || !onDismiss) return;
+    const id = setTimeout(() => onDismiss(notification.id), autoDismissMs);
+    return () => clearTimeout(id);
+  }, [controlled, isDecision, autoDismissMs, onDismiss, notification.id]);
 
   const expanded = renderState === "expanded";
   // The 27 `--s-*` overrides live on the `.di-island` root so they reach BOTH the
@@ -260,7 +294,7 @@ export const Island = forwardRef<IslandHandle, IslandProps>(function Island(
       </svg>
       <div className="di-content" ref={contentRef}>
         {expanded ? (
-          <IslandExpanded notification={notification} />
+          <IslandExpanded notification={notification} onAction={onAction} />
         ) : (
           <IslandCompact notification={notification} />
         )}

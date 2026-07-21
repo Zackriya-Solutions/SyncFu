@@ -265,3 +265,11 @@ world - newest data point for the A1 finding).
   flight; will fix forward if red.
 - T8 merged tree FULLY verified: tsc + 142 vitest + 91 playwright (real exit 0) + cargo check.
   12/17 merged. Awaiting T5a (resumed) - last blocker for T5b + T6.
+- T5a REVIEW: FINDINGS adjudicated by orchestrator: F1 keep the latent-card-bug fix (critical
+  previously auto-dismissed at 8s via `?? 8000` on null - violated locked priority contract);
+  VERBATIM comment corrected to honest deliberate-change documentation. F2 folded into T6:
+  backend hasWaiter enrichment; suppression scoped to waiter-backed decisions; non-wait actionables
+  follow card auto-dismiss; island unanswered --wait -> exit 2 RATIFIED (matches OQ-2); invariant-b
+  rewording queued as PRD amendment for T10. F3 noted - T6 owns closing A4.
+- T5a MERGE: conflict map executed (props union, core.invoke rewrite, css union WITH the extra
+  @keyframes closing brace - the silent trap). tsc + 155 vitest green; playwright verifying.
