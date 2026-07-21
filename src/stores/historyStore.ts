@@ -41,8 +41,16 @@ export const useHistoryStore = create<HistoryState>((set) => ({
 
   setEntries: (entries) => set({ entries }),
 
+  // Idempotent by id: a notification is recorded at most once. This is the
+  // double-ingest guard for history wiring - the backend broadcasts one
+  // `history:add` per notification and only the main window ingests it, but a
+  // redelivered event or a StrictMode double-listener must never duplicate a row.
   prependEntry: (entry) =>
-    set((state) => ({ entries: [entry, ...state.entries] })),
+    set((state) =>
+      state.entries.some((e) => e.id === entry.id)
+        ? state
+        : { entries: [entry, ...state.entries] }
+    ),
 
   selectEntry: (id) => set({ selectedId: id }),
 

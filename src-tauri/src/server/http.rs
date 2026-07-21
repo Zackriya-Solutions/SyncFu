@@ -170,6 +170,13 @@ async fn handle_notify(
             Ok(()) => info!("Notification emitted: id={id} sender={}", req_sender),
             Err(e) => error!("Failed to emit notification:add: {e}"),
         }
+        // History ingest (presentation-agnostic, single ingest point): one broadcast
+        // per accepted notification so the main window records it once, for BOTH card
+        // and island. Only the main-window historyStore listens; the overlay/island
+        // windows ignore it. Idempotent by id on the frontend guards redelivery.
+        if let Err(e) = tauri::Emitter::emit(app, "history:add", &payload) {
+            error!("Failed to emit history:add: {e}");
+        }
         crate::emit_island_snapshot(app, &state.manager, &state.waiters).await;
     } else {
         warn!("No app_handle — cannot emit notification event");

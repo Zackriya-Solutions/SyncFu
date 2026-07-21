@@ -46,6 +46,12 @@ async fn notify(
 ) -> Result<String, String> {
     let id = manager.add(payload.clone()).await;
     route_show_and_emit(&app, &payload)?;
+    // History ingest (presentation-agnostic, single ingest point): mirrors the HTTP
+    // path so a notification created over the Tauri command is recorded in history
+    // exactly once too. Only the main-window historyStore listens.
+    if let Err(e) = app.emit("history:add", &payload) {
+        error!("Failed to emit history:add: {e}");
+    }
     emit_island_snapshot(&app, &manager, &waiters).await;
     Ok(id)
 }
@@ -304,6 +310,12 @@ async fn test_notify(
     };
     let id = manager.add(payload.clone()).await;
     route_show_and_emit(&app, &payload)?;
+    // History ingest (presentation-agnostic, single ingest point): mirrors the HTTP
+    // path so a notification created over the Tauri command is recorded in history
+    // exactly once too. Only the main-window historyStore listens.
+    if let Err(e) = app.emit("history:add", &payload) {
+        error!("Failed to emit history:add: {e}");
+    }
     emit_island_snapshot(&app, &manager, &waiters).await;
     Ok(id)
 }
