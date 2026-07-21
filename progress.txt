@@ -173,3 +173,6 @@ world - newest data point for the A1 finding).
   HTTP boundary; client.rs skip justified. Commit b5f3f5d. Second-eyes review dispatched.
 - T0 REVIEW: CLEAN (all invariants verified live incl corrupt-baseline failure). MERGED into
   feat/dynamic-island (no-ff). Latent host assumption noted: webServer uses python3 (fine on mac CI).
+- T1 REVIEW: CLEAN (serde defaults verified per boundary; wire-body test spawns real binary; guards
+  G8/G9/G12 hold; client.rs skip validated). MERGED into feat/dynamic-island.
+- Wave 0 COMPLETE: 4/4 tasks merged. Dispatching T3 (island window; consumes G1 recipe + T1 field).
