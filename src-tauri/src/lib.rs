@@ -299,7 +299,7 @@ pub fn run() {
                 .expect("failed to create notification panel");
             info!("Notification panel created (hidden until first notification)");
 
-            // Create the dynamic-island window — top-center, hidden until an island notification.
+            // Create the dynamic-island window - top-center, hidden until an island notification.
             overlay::island::create_island(app.handle())
                 .expect("failed to create island window");
             info!("Island window created (hidden until first island notification)");

@@ -1,4 +1,4 @@
-//! Dynamic Island overlay window — a dedicated top-center capsule window, distinct from the
+//! Dynamic Island overlay window - a dedicated top-center capsule window, distinct from the
 //! top-right notification panel (`panel.rs`).
 //!
 //! Platform strategy (mirrors `panel.rs`):
@@ -284,7 +284,7 @@ fn reposition_island_on_main(app: &AppHandle) {
 
 /// Select the monitor to anchor the island on.
 ///
-/// macOS: when any attached display has a notch, anchor on the primary monitor — the built-in
+/// macOS: when any attached display has a notch, anchor on the primary monitor - the built-in
 /// notched panel in the standard single-builtin config. Precise multi-display targeting of an
 /// arbitrary notched screen (e.g. an external set as main display) is deferred; primary is the
 /// documented proxy, and non-notch layouts fall through to the cursor monitor (floating capsule).
@@ -329,7 +329,7 @@ mod tests {
 
     #[test]
     fn test_island_anchor_retina_2x() {
-        // MacBook Pro 14" — physical 3024x1964 @ 2.0 (the notched-display case).
+        // MacBook Pro 14" - physical 3024x1964 @ 2.0 (the notched-display case).
         let monitor = MonitorInfo {
             x: 0.0,
             y: 0.0,

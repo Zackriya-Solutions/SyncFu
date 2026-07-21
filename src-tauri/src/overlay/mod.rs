@@ -28,11 +28,10 @@ impl OverlayRoute {
     }
 
     /// The Tauri window label that receives this route's `notification:*` events.
-    /// `Panel` mirrors `panel.rs`'s `overlay` label (not a const there); `Island` uses
-    /// `island::ISLAND_LABEL`.
+    /// Single source of truth: `panel::PANEL_LABEL` / `island::ISLAND_LABEL`.
     pub fn window_label(self) -> &'static str {
         match self {
-            OverlayRoute::Panel => "overlay",
+            OverlayRoute::Panel => panel::PANEL_LABEL,
             OverlayRoute::Island => island::ISLAND_LABEL,
         }
     }
