@@ -301,3 +301,10 @@ world - newest data point for the A1 finding).
   FLAG adjudicated by orchestrator: PRD FR-1 amended to strict-validation semantics (consistent
   with priority; loud failure beats wrong presentation). 193 vitest + 36 playwright green.
   Commits e402342 + FR-1 amendment. Review dispatched (docs-vs-code audit).
+- T10 REVIEW: CLEAN (docs-vs-code audit table fully verified incl honesty gate; history wiring at
+  exactly 3 emit sites; PRD amendments confined to amended sections). NIT (changelog count
+  phrasing) accepted as-is. MERGED (16/17). Tooling discovery: app + CLI binaries COLLIDE on the
+  name `syncfu` in the shared CARGO_TARGET_DIR (app wins) - T11 must invoke the CLI via
+  `cargo run -p syncfu-cli` or CARGO_BIN_EXE, and the release checklist gets a note. Reviewer's
+  stray app launch killed.
+- T11 dispatching - the final task.
