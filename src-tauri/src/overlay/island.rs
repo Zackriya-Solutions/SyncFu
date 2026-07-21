@@ -18,6 +18,8 @@
 use log::info;
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
+#[cfg(target_os = "macos")]
+use tauri::Emitter;
 
 #[cfg(target_os = "macos")]
 use tauri_nspanel::ManagerExt;
@@ -70,6 +72,50 @@ impl IslandEnvelope {
 pub struct IslandPosition {
     pub x: f64,
     pub y: f64,
+}
+
+/// Physical notch cutout geometry surfaced to the island webview (BUG A). Logical points == CSS px
+/// on macOS, so the frontend uses these directly to keep compact content in the visible wings beside
+/// the cutout. `None` on non-notch / non-macOS (float capsule); serialized camelCase for the TS mirror.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotchGeometryDto {
+    pub width_logical: f64,
+    pub height_logical: f64,
+}
+
+/// Read the live notch cutout geometry for the built-in notched display, or `None` when there is no
+/// notch (non-notch Mac / non-macOS / external target). Dispatches to the main thread (NSScreen is
+/// `MainThreadOnly`, G1) and blocks briefly for the result, so this is safe to call from a Tauri
+/// command worker thread but MUST NOT be called from the main thread itself.
+pub fn notch_geometry_dto(app: &AppHandle) -> Option<NotchGeometryDto> {
+    #[cfg(target_os = "macos")]
+    {
+        use std::sync::mpsc;
+        use std::time::Duration;
+        let (tx, rx) = mpsc::channel();
+        let _ = app.run_on_main_thread(move || {
+            let _ = tx.send(read_notch_geometry_on_main());
+        });
+        rx.recv_timeout(Duration::from_millis(500)).ok().flatten()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        None
+    }
+}
+
+/// Read the notch geometry DTO on the current thread (MUST already be the main thread). Off the main
+/// thread `MainThreadMarker::new()` returns `None`, yielding a safe `None` rather than UB.
+#[cfg(target_os = "macos")]
+fn read_notch_geometry_on_main() -> Option<NotchGeometryDto> {
+    use objc2_foundation::MainThreadMarker;
+    let mtm = MainThreadMarker::new()?;
+    crate::overlay::notch::notch_geometry(mtm).map(|g| NotchGeometryDto {
+        width_logical: g.notch_width,
+        height_logical: g.notch_height,
+    })
 }
 
 /// Center the fixed envelope on the target monitor's top edge.
@@ -261,18 +307,26 @@ pub fn show_island(app: &AppHandle) {
         {
             if let Ok(panel) = inner.get_webview_panel(ISLAND_LABEL) {
                 panel.show();
+                // Track the cursor against the reported hitbox while the island is visible so the
+                // shown capsule becomes interactive under the pointer (BUG B). No-op if already
+                // running; stopped in hide_island (R-PERF: zero idle cost when hidden).
+                crate::overlay::hover::start_tracking(&inner);
                 return;
             }
         }
 
         if let Some(window) = inner.get_webview_window(ISLAND_LABEL) {
             let _ = window.show();
+            crate::overlay::hover::start_tracking(&inner);
         }
     });
 }
 
 /// Hide the island window. Dispatches to the main thread for NSPanel safety.
 pub fn hide_island(app: &AppHandle) {
+    // Stop the cursor tracker and restore idle click-through (BUG B): a hidden window must never
+    // stay interactive, and polling must cost nothing while nothing is shown (R-PERF).
+    crate::overlay::hover::stop_tracking(app);
     let handle = app.clone();
     let inner = app.clone();
     let _ = handle.run_on_main_thread(move || {
@@ -297,6 +351,14 @@ pub fn reflow_island(app: &AppHandle) {
     let inner = app.clone();
     let _ = handle.run_on_main_thread(move || {
         reposition_island_on_main(&inner);
+        // Push the current notch geometry to the island webview (BUG A) so a monitor/display change
+        // reflows the wing-aware compact layout. Already on the main thread here. Emits `None`
+        // (null) on non-notch displays; the frontend keeps the float layout then.
+        #[cfg(target_os = "macos")]
+        {
+            let dto = read_notch_geometry_on_main();
+            let _ = inner.emit_to(ISLAND_LABEL, "island:geometry", &dto);
+        }
     });
 }
 

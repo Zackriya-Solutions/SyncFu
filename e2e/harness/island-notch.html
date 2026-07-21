@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Dynamic Island notch harness</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: linear-gradient(160deg, #2a2140 0%, #1a2740 45%, #122033 100%);
+      }
+      #root {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        gap: 64px;
+        padding: 64px;
+      }
+      /* The stage is the transparent envelope; the island top-aligns to its top
+         edge and centers horizontally, so the cutout overlays the island's exact
+         top-center 183x32 region. */
+      .stage {
+        position: relative;
+        width: 600px;
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
+      }
+      /* The simulated physical notch cutout: opaque black, top-center, on top. */
+      .cutout {
+        position: absolute;
+        top: 0;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #000;
+        z-index: 10;
+        pointer-events: none;
+      }
+      .mount {
+        display: flex;
+        justify-content: center;
+        width: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./island-notch.tsx"></script>
+  </body>
+</html>
