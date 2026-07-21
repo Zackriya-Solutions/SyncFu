@@ -73,6 +73,15 @@ export function IslandOverlay() {
   }, [setSettings]);
 
   const islandItems = notifications.filter((n) => n.presentation === "island");
+  // Latest-wins spotlight: the store prepends on add, so `[0]` is the newest item.
+  // A new distinct notification therefore changes `current.id` and, via the
+  // `key={current.id}` below, re-presents cleanly (the previous Island unmounts and
+  // disposes its rAF - never a half-morph, T5b invariant c).
+  //
+  // T6 SEAM (list-open, D5): when `islandItems.length > 1`, T6 renders a ranked,
+  // deduped, capped list here (spotlight + xN badge -> expanded list) and pauses
+  // per-item auto-dismiss while it is open. T5b intentionally renders ONLY the
+  // single spotlight item; do NOT build the list here.
   const current = islandItems[0];
 
   // Float position drives where the capsule sits inside the transparent envelope

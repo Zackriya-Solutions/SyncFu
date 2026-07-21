@@ -141,12 +141,58 @@
   text-overflow: ellipsis;
 }
 
-/* Trailing live-activity slot: pushed to the right, filled in T4b/T5b. */
+/* Trailing live-activity slot: pushed to the right, filled in T5b. */
 .di-trailing {
   margin-left: auto;
   flex: none;
   display: inline-flex;
   align-items: center;
+}
+
+/* Compact live-activity (T5b): a mini progress ring + percent. The compact pill
+ * is always a ring (no room for a bar). The fill arc is a declarative
+ * stroke-dashoffset (React writes it per re-render; the CSS transition eases it),
+ * so a progress update costs NO rAF morph frame (R-PERF). The accent honors the
+ * shared `--s-progress-color` / accent overrides (invariant c). */
+.di-liveactivity {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.di-mini-ring {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+.di-mini-ring circle {
+  fill: none;
+  stroke-width: 3;
+}
+
+.di-mini-track {
+  stroke: var(--s-progress-track-color, rgba(255, 255, 255, 0.15));
+}
+
+.di-mini-fill {
+  stroke: var(--s-progress-color, var(--s-accent-color, var(--di-accent, #4a9eff)));
+  stroke-linecap: round;
+  transform: rotate(-90deg);
+  transform-origin: 50% 50%;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .di-mini-fill {
+    transition: stroke-dashoffset 250ms ease;
+  }
+}
+
+.di-mini-pct {
+  font-family: ui-monospace, "SF Mono", "Menlo", monospace;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--s-accent-color, var(--di-accent, #4a9eff));
 }
 
 /* ---- Expanded card ------------------------------------------------------- */
@@ -279,6 +325,102 @@
 .di-btn2.danger {
   background: var(--s-danger-bg, #ff3b30);
   color: var(--s-danger-color, #fff);
+}
+
+/* ---- Progress: bar + ring (T5b) ------------------------------------------ */
+/* Ported from the mockup's `.ex-progress` (bar) and `.ring-wrap` (ring). Colors
+ * honor the shared `--s-progress-*` overrides so the island matches the card's
+ * palette (invariant c). Fills are declarative (width / stroke-dashoffset), eased
+ * by CSS only under no-preference so settled snapshots are deterministic and a
+ * value change never schedules an rAF morph frame (R-PERF). */
+.di-progress {
+  margin-top: 2px;
+}
+
+.di-pbar {
+  height: 4px;
+  border-radius: 3px;
+  background: var(--s-progress-track-color, rgba(255, 255, 255, 0.09));
+  overflow: hidden;
+}
+
+.di-pbar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--s-progress-color, var(--s-accent-color, var(--di-accent, #4a9eff)));
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .di-pbar-fill {
+    transition: width 250ms ease;
+  }
+}
+
+.di-plabel {
+  display: flex;
+  justify-content: space-between;
+  font-family: ui-monospace, "SF Mono", "Menlo", monospace;
+  font-size: 10.5px;
+  color: var(--s-time-color, #9aa4b4);
+  margin-top: 6px;
+}
+
+.di-ring-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 2px;
+}
+
+.di-ring {
+  width: 40px;
+  height: 40px;
+  flex: none;
+}
+
+.di-ring circle {
+  fill: none;
+  stroke-width: 4;
+}
+
+.di-ring-track {
+  stroke: var(--s-progress-track-color, rgba(255, 255, 255, 0.1));
+}
+
+.di-ring-fill {
+  stroke: var(--s-progress-color, var(--s-accent-color, var(--di-accent, #4a9eff)));
+  stroke-linecap: round;
+  transform: rotate(-90deg);
+  transform-origin: 50% 50%;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .di-ring-fill {
+    transition: stroke-dashoffset 250ms ease;
+  }
+}
+
+.di-ring-pct {
+  font-family: ui-monospace, "SF Mono", "Menlo", monospace;
+  font-size: 13px;
+  color: var(--s-title-color, #f4f6fa);
+}
+
+.di-ring-label {
+  color: var(--s-body-color, #c7cedd);
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.di-light-content .di-plabel {
+  color: rgba(0, 0, 0, 0.42);
+}
+.di-light-content .di-ring-pct {
+  color: rgba(0, 0, 0, 0.9);
+}
+.di-light-content .di-ring-label {
+  color: rgba(0, 0, 0, 0.62);
 }
 
 /* ---- Auto-dismiss countdown (T5a) ---------------------------------------- */
