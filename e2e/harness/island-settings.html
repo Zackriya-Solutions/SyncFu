@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Dynamic Island settings harness</title>
+    <script>
+      // No Tauri backend in the browser harness. Stub the IPC bridge so the
+      // panel's invoke() calls resolve (set_island_settings echoes the settings
+      // back, mirroring the backend's clamped return); the optimistic store write
+      // still drives the live island regardless.
+      window.__TAURI_INTERNALS__ = {
+        transformCallback: function (cb) {
+          return cb;
+        },
+        invoke: function (cmd, args) {
+          if (cmd === "set_island_settings") {
+            return Promise.resolve(args && args.settings);
+          }
+          return Promise.resolve(null);
+        },
+      };
+    </script>
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: linear-gradient(160deg, #2a2140 0%, #1a2740 45%, #122033 100%);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./island-settings.tsx"></script>
+  </body>
+</html>

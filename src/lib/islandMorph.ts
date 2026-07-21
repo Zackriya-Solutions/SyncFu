@@ -20,6 +20,10 @@ import {
   type SpringLoop,
 } from "./spring";
 import { notchPath, RADII } from "./notchPath";
+import {
+  DEFAULT_ISLAND_SETTINGS,
+  type IslandSettings,
+} from "@/types/islandSettings";
 
 export type IslandState = "compact" | "expanded";
 
@@ -50,7 +54,14 @@ export const MORPH = {
  *  hugs the physical, opaque notch cutout. The expanded surface honors the
  *  shared `--s-card-bg` override, defaulting to the mockup's frosted charcoal. */
 const COMPACT_FILL = "#000000";
-const EXPANDED_FILL = "var(--s-card-bg, rgba(13,13,15,0.94))";
+// The expanded default fill honors the `--s-card-bg` per-notification override
+// first; failing that it uses the frosted charcoal at the live surface-opacity
+// (T7b). `--di-surface-opacity` is republished on the island root when the
+// setting changes, so the surface restyles with ZERO spring work (the alpha is
+// a paint-time CSS var, not a geometry target). Neither var set -> the mockup's
+// rgba(13,13,15,0.94), so every existing baseline is pixel-identical.
+const EXPANDED_FILL =
+  "var(--s-card-bg, rgba(13,13,15, var(--di-surface-opacity, 0.94)))";
 
 export interface MorphElements {
   readonly island: HTMLElement;
@@ -63,6 +74,14 @@ export interface MorphElements {
 export interface MorphController {
   /** Current logical state (which anatomy the caller should be rendering). */
   readonly state: IslandState;
+  /** Adopt a settings envelope WITHOUT re-targeting (no motion, no kick). Called
+   *  once at creation, BEFORE the first snap, so the arrival geometry already
+   *  reflects the persisted settings (T7b creation-read path). */
+  configure(settings: IslandSettings): void;
+  /** Live restyle (T7b): adopt a new settings envelope and ANIMATE the current
+   *  state's springs toward the new geometry (never snap - D3), unless `reduced`
+   *  (then snap). Surface opacity + accent are republished as CSS vars. */
+  applySettings(settings: IslandSettings, reduced: boolean): void;
   /** Arrive at a state INSTANTLY (springs snapped, no motion). The lifecycle
    *  entry uses this to "arrive expanded" before the animated auto-collapse. */
   snap(next: IslandState, reduced: boolean): void;
@@ -91,6 +110,13 @@ function countFrame(): void {
 
 export function createMorphController(els: MorphElements): MorphController {
   const { island, svg, path, content } = els;
+  // The live settings the geometry springs target. Seeded from the D4 defaults
+  // (identical to the MORPH/RADII spring seeds below), then replaced by
+  // configure()/applySettings() so a settings change re-targets without
+  // recreating the controller. Expanded radii stay the fixed D3 19/24 while
+  // corner-scaling is on; off, the pill keeps its compact radii in both states
+  // (mockup `cornerScaling ? expTopR : topR`).
+  let settings: IslandSettings = DEFAULT_ISLAND_SETTINGS;
 
   // Four geometry springs (W, H, top-radius, bottom-radius), all on the CONTAINER
   // config like the mockup's cc(). Initialized to compact; snap()/animateTo() set
@@ -159,15 +185,15 @@ export function createMorphController(els: MorphElements): MorphController {
     const cfg = pickSpring(SPRING.CONTAINER, reduced);
     for (const s of springs) s.setConfig(cfg);
     if (next === "expanded") {
-      sW.to(MORPH.expandedW);
+      sW.to(settings.expandedWidth);
       sH.to(measuredHeight());
-      sT.to(RADII.expandedTop);
-      sB.to(RADII.expandedBottom);
+      sT.to(settings.cornerScaling ? RADII.expandedTop : settings.topRadius);
+      sB.to(settings.cornerScaling ? RADII.expandedBottom : settings.bottomRadius);
     } else {
-      sW.to(MORPH.compactW);
-      sH.to(MORPH.compactH);
-      sT.to(RADII.compactTop);
-      sB.to(RADII.compactBottom);
+      sW.to(settings.compactWidth);
+      sH.to(settings.height);
+      sT.to(settings.topRadius);
+      sB.to(settings.bottomRadius);
     }
   }
 
@@ -190,6 +216,18 @@ export function createMorphController(els: MorphElements): MorphController {
     pendingMeasure = requestAnimationFrame(applyMeasure);
   }
 
+  /** Adopt a settings envelope: update the geometry targets' source-of-truth and
+   *  republish the surface vars. Pure state update - callers decide whether to
+   *  snap or animate afterward. */
+  function configure(next: IslandSettings): void {
+    settings = next;
+    // Fill alpha + accent are paint-time CSS vars, not geometry - a change
+    // restyles the surface with no spring work. Compact stays pure black
+    // (invariant d): it reads neither var.
+    island.style.setProperty("--di-surface-opacity", String(next.surfaceOpacity));
+    island.style.setProperty("--di-accent", next.accent);
+  }
+
   /** Arrive at a state instantly - springs snapped, no motion. */
   function snap(next: IslandState, reduced: boolean): void {
     state = next;
@@ -203,6 +241,22 @@ export function createMorphController(els: MorphElements): MorphController {
   return {
     get state() {
       return state;
+    },
+    configure,
+    applySettings(next, reduced) {
+      configure(next);
+      // Re-target the CURRENT state toward the new geometry. Reduced motion snaps
+      // (D3 carve-out); otherwise the same spring path animateTo uses drives the
+      // live morph to the new size/radii - the OS frame is never touched (D3).
+      setTargets(state, reduced);
+      if (reduced) {
+        for (const s of springs) s.set(s.target);
+        paint(sW.x, sH.x, sT.x, sB.x, state === "expanded");
+        publishSettled(true);
+        return;
+      }
+      publishSettled(false);
+      loop.kick();
     },
     snap,
     animateTo(next, reduced) {

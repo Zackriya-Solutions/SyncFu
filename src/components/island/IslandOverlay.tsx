@@ -1,6 +1,9 @@
 import { useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { event as tauriEvent, core } from "@tauri-apps/api";
 import { useNotifications } from "@/hooks/useNotifications";
+import { useIslandSettingsStore } from "@/stores/islandSettingsStore";
+import type { IslandSettings } from "@/types/islandSettings";
 import { Island } from "./Island";
 
 // Per-window host for the `island` webview. Reuses the SAME `useNotifications`
@@ -23,12 +26,42 @@ export function IslandOverlay() {
   // adds reach this window too; dropping them at ingest keeps them from consuming
   // MAX_VISIBLE slots and starving an island notification into the queue.
   const { notifications } = useNotifications((n) => n.presentation === "island");
+  const setSettings = useIslandSettingsStore((s) => s.setSettings);
 
   // Transparent window background (same Cap pattern as the overlay panel).
   useEffect(() => {
     document.documentElement.setAttribute("data-transparent-window", "true");
     document.body.style.background = "transparent";
   }, []);
+
+  // Island settings, two independent paths into the store (T7b, invariant b):
+  //   1. creation read - fetch the persisted settings once so a change made
+  //      BEFORE this window existed is honored on the first paint;
+  //   2. live change - the `island:settings` event (emitted by the backend on
+  //      set_island_settings) restyles the live island with no restart/resend.
+  // Island.tsx subscribes to the store, so both paths converge there. A dropped
+  // event cannot pin stale geometry forever: the next event (or the next window
+  // creation) re-reads the truth.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let active = true;
+    (async () => {
+      try {
+        const persisted = await core.invoke<IslandSettings>("get_island_settings");
+        if (active && persisted) setSettings(persisted);
+      } catch {
+        // No backend (browser harness) or read failure: keep the store defaults.
+      }
+      unlisten = await tauriEvent.listen<IslandSettings>("island:settings", (ev) => {
+        setSettings(ev.payload as IslandSettings);
+      });
+      if (!active) unlisten?.();
+    })();
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, [setSettings]);
 
   const islandItems = notifications.filter((n) => n.presentation === "island");
   const current = islandItems[0];
