@@ -111,8 +111,8 @@ pub fn create_island(app: &AppHandle) -> Result<(), String> {
 
     // G2 (binding): apply capture protection on the exact island window BEFORE it is first shown.
     // create runs in `.setup()`; the first show happens later on an island notify, so this queued
-    // main-thread task always runs first.
-    set_island_capture_protected(app);
+    // main-thread task always runs first. Defaults hide from capture (settings default true).
+    set_island_capture_protected(app, true);
     // Idle click-through: the transparent envelope must not intercept clicks. Per-region
     // interactivity when a notification is shown is the frontend's job (pointer-events, T4a).
     set_island_idle_click_through(app);
@@ -247,26 +247,35 @@ pub fn reflow_island(app: &AppHandle) {
     });
 }
 
-/// Apply screen-capture exclusion to the island window. G2 seam for T9's OS-aware status logic;
-/// T3 applies it unconditionally before first show as documented defense-in-depth (harmless where
-/// the OS does not honor it). Dispatches to the main thread and never resizes the frame.
-pub fn set_island_capture_protected(app: &AppHandle) {
+/// Apply or clear screen-capture exclusion on the island window, in place (never resizes or rebuilds
+/// the frame - G2). G2 seam for T9's OS-aware status logic; T3 applies it before first show as
+/// documented defense-in-depth (harmless where the OS does not honor it). T7a's settings set-path
+/// calls this with the `hideFromScreenCapture` toggle. Dispatches to the main thread.
+pub fn set_island_capture_protected(app: &AppHandle, protected: bool) {
     let inner = app.clone();
     let _ = app.run_on_main_thread(move || {
         if let Some(window) = inner.get_webview_window(ISLAND_LABEL) {
-            let _ = window.set_content_protected(true);
+            let _ = window.set_content_protected(protected);
+        }
+    });
+}
+
+/// Toggle whether the island window receives pointer events. `interactive == false` restores the
+/// idle click-through so the transparent envelope never eats clicks; `true` lets the shown capsule
+/// take clicks (buttons). In place - never resizes or rebuilds the frame. Dispatches to the main
+/// thread.
+pub fn set_island_interactive(app: &AppHandle, interactive: bool) {
+    let inner = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        if let Some(window) = inner.get_webview_window(ISLAND_LABEL) {
+            let _ = window.set_ignore_cursor_events(!interactive);
         }
     });
 }
 
 /// Make the idle island window click-through (transparent envelope must not eat clicks).
 fn set_island_idle_click_through(app: &AppHandle) {
-    let inner = app.clone();
-    let _ = app.run_on_main_thread(move || {
-        if let Some(window) = inner.get_webview_window(ISLAND_LABEL) {
-            let _ = window.set_ignore_cursor_events(true);
-        }
-    });
+    set_island_interactive(app, false);
 }
 
 /// Reposition the island window to its target monitor's top-center anchor. MUST run on the main
