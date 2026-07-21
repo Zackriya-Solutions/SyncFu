@@ -6,7 +6,7 @@ pub mod tray;
 use std::sync::Arc;
 
 use log::{error, info};
-use notification::manager::NotificationManager;
+use notification::manager::{IslandSnapshot, NotificationManager};
 use notification::settings::{self, IslandSettings};
 use notification::types::{NotificationPayload, NotificationUpdate, Presentation, Priority, Timeout};
 use server::http::ServerState;
@@ -21,14 +21,32 @@ const LOG_LEVEL: log::LevelFilter = log::LevelFilter::Debug;
 #[cfg(not(debug_assertions))]
 const LOG_LEVEL: log::LevelFilter = log::LevelFilter::Info;
 
+/// Recompute and emit the authoritative Model B island snapshot (D5 / G10) to the
+/// island window ONLY (`emit_to`, so the top-right panel never sees it). Called on
+/// EVERY manager change so the frontend `IslandList` renders a truth it never
+/// re-derives (C1). `hasWaiter` is enriched here from the live `WaiterRegistry`.
+pub async fn emit_island_snapshot(
+    app: &tauri::AppHandle,
+    manager: &NotificationManager,
+    waiters: &WaiterRegistry,
+) {
+    let waiter_ids = waiters.active_ids().await;
+    let snapshot = manager.island_snapshot(&waiter_ids).await;
+    if let Err(e) = app.emit_to(overlay::island::ISLAND_LABEL, "island:snapshot", &snapshot) {
+        error!("Failed to emit island:snapshot: {e}");
+    }
+}
+
 #[tauri::command]
 async fn notify(
     manager: tauri::State<'_, Arc<NotificationManager>>,
+    waiters: tauri::State<'_, Arc<WaiterRegistry>>,
     payload: NotificationPayload,
     app: tauri::AppHandle,
 ) -> Result<String, String> {
     let id = manager.add(payload.clone()).await;
     route_show_and_emit(&app, &payload)?;
+    emit_island_snapshot(&app, &manager, &waiters).await;
     Ok(id)
 }
 
@@ -74,6 +92,7 @@ async fn dismiss_notification(
             overlay::hide_for(&app, notification.presentation);
         }
     }
+    emit_island_snapshot(&app, &manager, &waiters).await;
     Ok(dismissed.is_some())
 }
 
@@ -93,12 +112,14 @@ async fn dismiss_all(
     overlay::island::hide_island(&app);
     app.emit("notification:dismiss-all", &count)
         .map_err(|e| e.to_string())?;
+    emit_island_snapshot(&app, &manager, &waiters).await;
     Ok(count)
 }
 
 #[tauri::command]
 async fn update_notification(
     manager: tauri::State<'_, Arc<NotificationManager>>,
+    waiters: tauri::State<'_, Arc<WaiterRegistry>>,
     id: String,
     update: NotificationUpdate,
     app: tauri::AppHandle,
@@ -107,6 +128,7 @@ async fn update_notification(
     if updated {
         app.emit("notification:update", &serde_json::json!({ "id": id, "update": update }))
             .map_err(|e| e.to_string())?;
+        emit_island_snapshot(&app, &manager, &waiters).await;
     }
     Ok(updated)
 }
@@ -179,6 +201,7 @@ async fn action_callback(
             overlay::hide_for(&app, notification.presentation);
         }
     }
+    emit_island_snapshot(&app, &manager, &waiters).await;
 
     Ok(result)
 }
@@ -242,10 +265,23 @@ async fn set_island_interactive(app: tauri::AppHandle, interactive: bool) -> Res
     Ok(())
 }
 
+/// Read the current authoritative island snapshot (D5 / G10). The creation-read
+/// the island window makes on mount so a window that starts AFTER notifications
+/// already exist reconciles immediately (closes W3 undercount / late-listener).
+#[tauri::command]
+async fn get_island_snapshot(
+    manager: tauri::State<'_, Arc<NotificationManager>>,
+    waiters: tauri::State<'_, Arc<WaiterRegistry>>,
+) -> Result<IslandSnapshot, String> {
+    let waiter_ids = waiters.active_ids().await;
+    Ok(manager.island_snapshot(&waiter_ids).await)
+}
+
 /// Send a test notification for manual testing during development.
 #[tauri::command]
 async fn test_notify(
     manager: tauri::State<'_, Arc<NotificationManager>>,
+    waiters: tauri::State<'_, Arc<WaiterRegistry>>,
     app: tauri::AppHandle,
 ) -> Result<String, String> {
     let payload = NotificationPayload {
@@ -268,6 +304,7 @@ async fn test_notify(
     };
     let id = manager.add(payload.clone()).await;
     route_show_and_emit(&app, &payload)?;
+    emit_island_snapshot(&app, &manager, &waiters).await;
     Ok(id)
 }
 
@@ -349,6 +386,7 @@ pub fn run() {
             set_island_settings,
             set_island_interactive,
             get_island_capture_status,
+            get_island_snapshot,
         ])
         .setup(|app| {
             info!("syncfu starting up");

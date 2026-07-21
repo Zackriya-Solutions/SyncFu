@@ -469,3 +469,265 @@
     transform: scaleX(0);
   }
 }
+
+/* ============================================================================
+   Model B overflow (T6): compact spotlight + xN badge, expanded ranked list.
+   Ported from the approved mockup rev 8 (.cmp / .lst / .lrow anatomy). Rank,
+   dedupe, count and badge width are Rust-owned (snapshot); these rules only lay
+   out and color what the snapshot hands over.
+   ========================================================================== */
+
+/* Priority accent for grouped rows + spotlight (mockup PRIO hexes). A per-row
+   accent is derived purely from `data-priority`, so no JS color map is needed. */
+.di-lrow,
+.di-spot {
+  --acc: var(--di-accent, #4a9eff);
+}
+.di-lrow[data-priority="low"],
+.di-spot[data-priority="low"] {
+  --acc: #2ed573;
+}
+.di-lrow[data-priority="normal"],
+.di-spot[data-priority="normal"] {
+  --acc: #4a9eff;
+}
+.di-lrow[data-priority="high"],
+.di-spot[data-priority="high"] {
+  --acc: #ffa502;
+}
+.di-lrow[data-priority="critical"],
+.di-spot[data-priority="critical"] {
+  --acc: #ff3b30;
+}
+
+/* ---- Compact spotlight (count > 1) --------------------------------------- */
+.di-spot {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+.di-spot-ava {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--acc);
+}
+.di-spot-txt {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+  line-height: 1.15;
+}
+.di-spot-txt b {
+  font-size: 12px;
+  font-weight: 640;
+  letter-spacing: -0.01em;
+  color: #f2f4f8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.di-spot-txt i {
+  font-size: 10.5px;
+  font-style: normal;
+  color: rgba(255, 255, 255, 0.6);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.di-light-content .di-spot-txt b {
+  color: rgba(0, 0, 0, 0.9);
+}
+.di-light-content .di-spot-txt i {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+/* The xN badge. Its WIDTH is Rust-owned (26 + 8*(digits-1), caps "9+") and set
+   inline from the snapshot; height/shape/color live here. */
+.di-badge-count {
+  flex: none;
+  height: 20px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-family: ui-monospace, "SF Mono", "Menlo", monospace;
+  font-size: 11px;
+  font-weight: 700;
+  color: #0a0a0a;
+  background: var(--acc);
+  box-shadow: 0 0 12px -2px var(--acc);
+}
+
+/* ---- Expanded ranked list ------------------------------------------------ */
+.di-list {
+  width: 100%;
+  padding: 10px 0 9px;
+}
+.di-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 2px 9px;
+}
+.di-list-title {
+  font-size: 12.5px;
+  font-weight: 640;
+  color: #eef0f4;
+}
+.di-light-content .di-list-title {
+  color: rgba(0, 0, 0, 0.9);
+}
+.di-list-head-r {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.di-list-count {
+  font-family: ui-monospace, "SF Mono", "Menlo", monospace;
+  font-size: 10px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.1);
+  padding: 3px 7px;
+  border-radius: 999px;
+  color: #cfd3db;
+}
+.di-list-collapse {
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  color: #dfe2e8;
+  font-size: 13px;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  line-height: 1;
+}
+.di-list-collapse:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Cap + scroll containment (D5 / T4b review): the body caps its OWN height so the
+   whole island stays under the 560px ceiling, and scrolls past the cap - it does
+   NOT rely on the morph height cap (bypassed by content auto-height at rest). */
+.di-list-body {
+  max-height: 300px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+/* Bottom fade when the list overflows the 6-row cap: the partial last row reads
+   as a scroll affordance, not a hard mid-row cut. */
+.di-list-body.scrolls {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    #000 calc(100% - 30px),
+    transparent 100%
+  );
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 30px), transparent 100%);
+}
+.di-list-spacer {
+  height: 18px;
+  flex: none;
+}
+.di-list-body::-webkit-scrollbar {
+  width: 6px;
+}
+.di-list-body::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 3px;
+}
+
+.di-lrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border-radius: 12px;
+  animation: di-row-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.di-lrow + .di-lrow {
+  margin-top: 2px;
+}
+.di-lrow:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+@media (prefers-reduced-motion: reduce) {
+  .di-lrow {
+    animation: none;
+  }
+}
+@keyframes di-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.di-lrow-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--acc);
+  flex: none;
+  box-shadow: 0 0 8px -1px var(--acc);
+}
+.di-lrow-ava {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  color: var(--acc);
+}
+.di-lrow-txt {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.25;
+  display: flex;
+  flex-direction: column;
+}
+.di-lrow-txt b {
+  font-size: 12px;
+  font-weight: 580;
+  color: #eef0f4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.di-lrow-txt span {
+  font-family: ui-monospace, "SF Mono", "Menlo", monospace;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.5);
+  text-transform: capitalize;
+}
+.di-light-content .di-lrow-txt b {
+  color: rgba(0, 0, 0, 0.9);
+}
+.di-light-content .di-lrow-txt span {
+  color: rgba(0, 0, 0, 0.5);
+}
+.di-lrow-act {
+  flex: none;
+  border: none;
+  border-radius: 9px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font: 640 12px/1 inherit;
+  color: #0a0a0a;
+  background: var(--acc);
+  box-shadow: 0 2px 12px -3px var(--acc);
+}

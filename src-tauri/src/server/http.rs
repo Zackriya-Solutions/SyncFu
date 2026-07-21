@@ -170,6 +170,7 @@ async fn handle_notify(
             Ok(()) => info!("Notification emitted: id={id} sender={}", req_sender),
             Err(e) => error!("Failed to emit notification:add: {e}"),
         }
+        crate::emit_island_snapshot(app, &state.manager, &state.waiters).await;
     } else {
         warn!("No app_handle — cannot emit notification event");
     }
@@ -197,6 +198,7 @@ async fn handle_update(
                 "notification:update",
                 &serde_json::json!({ "id": id, "update": update }),
             );
+            crate::emit_island_snapshot(app, &state.manager, &state.waiters).await;
         }
         info!("Notification updated: id={id}");
         StatusCode::OK
@@ -256,6 +258,12 @@ async fn handle_action(
             }
         }
     }
+    // Emit unconditionally (aligned with lib.rs action_callback): even if the
+    // post-action dismiss raced to None, the waiter resolution above may have
+    // changed hasWaiter, so the snapshot must reconcile (T6 review F2-low).
+    if let Some(ref app) = state.app_handle {
+        crate::emit_island_snapshot(app, &state.manager, &state.waiters).await;
+    }
 
     info!(
         "Action completed: id={id} action={} webhook_success={}",
@@ -291,6 +299,16 @@ async fn handle_wait(
     }
 
     info!("Wait: SSE stream opened for id={id}");
+
+    // A waiter just became PENDING for this id. hasWaiter and the A4 dedupe
+    // exemption are derived from the WaiterRegistry, which no manager mutation
+    // tracks - without this re-emit, a same-key notification that subscribed
+    // after the last emit stays merged away (unreachable row, wrong exit 2) and
+    // its auto-dismiss suppression reads stale hasWaiter=false. One emit per
+    // --wait, mirroring the creation-read reconcile philosophy (T6 review F1).
+    if let Some(ref app) = state.app_handle {
+        crate::emit_island_snapshot(app, &state.manager, &state.waiters).await;
+    }
 
     let stream = async_stream::stream! {
         // Send connected event so CLI knows the stream is live
@@ -335,6 +353,7 @@ async fn handle_dismiss(
             if state.manager.active_count().await == 0 {
                 crate::overlay::hide_for(app, notification.presentation);
             }
+            crate::emit_island_snapshot(app, &state.manager, &state.waiters).await;
         }
         info!("Notification dismissed: id={id}");
         StatusCode::OK
@@ -358,6 +377,7 @@ async fn handle_dismiss_all(
         crate::overlay::panel::hide_panel(app);
         crate::overlay::island::hide_island(app);
         let _ = tauri::Emitter::emit(app, "notification:dismiss-all", &count);
+        crate::emit_island_snapshot(app, &state.manager, &state.waiters).await;
     }
 
     info!("All notifications dismissed: count={count}");
