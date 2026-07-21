@@ -143,3 +143,33 @@ Next: WebSocket server, CLI, or Test UI.
 - color-mix() for glass works but 12% opacity too transparent on busy backgrounds — bumped to 96%
 - CSS @property for --pulse-opacity enables smooth Siri-style glow animation
 - Google Fonts loaded via dynamic <link> injection with display=swap — deduplicates across cards
+
+# ORCHESTRATOR RUN: dynamic-island (2026-07-21)
+Integration branch: feat/dynamic-island (off main). Plan: tasks/dynamic-island/FINAL-plan.md;
+authoritative specs 90-synthesis.md S3. 17 tasks. User decisions OQ-1..5 resolved (honest capture
+scoping / arrive-expanded lifecycle / presentation field / mockup radii / Linux toggle disabled).
+
+## Wave 0 (parallel) - DISPATCHED 2026-07-21
+- [ ] T0-HARNESS -> feat/island-t0-playwright-harness (wt: ../syncfu-wt-island/t0)
+- [ ] G1 notch spike -> spike/island-g1-notch-geometry (wt: ../syncfu-wt-island/g1)
+- [ ] G2 capture spike -> spike/island-g2-capture-exclusion (wt: ../syncfu-wt-island/g2)
+- [ ] T1 presentation field -> feat/island-t1-presentation-field (wt: ../syncfu-wt-island/t1)
+Decisions: plan package + TODO drafts committed to integration branch [skip ci]; workers share
+CARGO_TARGET_DIR with main worktree for cache reuse; G2 live probe runs on macOS 26.5 (post-15 SCK
+world - newest data point for the A1 finding).
+- G1 RETURNED: GO. notchWidth=183pt measured (26.5); NSZeroRect (not None) on non-notch; MainThreadOnly;
+  iterate screens() not mainScreen(). Commit 0bcaecc. Verdict: tasks/dynamic-island/gates/G1-verdict.md
+- G2 RETURNED: GO for T9 honest tri-state. 26.5: CGWindowList REMOVED from SDK, all capture funnels
+  through TCC-gated SCK; NSPanel defaults sharingType=readOnly; set_content_protected applies clean
+  pre-show. SCK live cell UNKNOWN-by-observation (no TCC grant for agent process) - documented
+  inference stands (captures on 15+). Detect by OS version, never read-back. Commit dccc940.
+- T0 RETURNED: harness green. 42 baselines (webkit-darwin + chromium-darwin, never mixed), 30 tests
+  passed twice, corrupt-baseline fails build, tsc+vitest green. Commit 4dfd211.
+- DEVIATION: remote push + gh pr create denied by permission classifier. Phase 4 adapted: second-eyes
+  review agents + LOCAL no-ff merges into feat/dynamic-island; all pushes/PRs deferred to final-PR
+  moment (user present). Rationale: review rigor + merge authority preserved; only the GitHub
+  ceremony for intermediate PRs is deferred. Worktrees preserved regardless.
+- T1 RETURNED: all gates green (143 Rust + 72 vitest); wire-level proof --presentation island survives
+  HTTP boundary; client.rs skip justified. Commit b5f3f5d. Second-eyes review dispatched.
+- T0 REVIEW: CLEAN (all invariants verified live incl corrupt-baseline failure). MERGED into
+  feat/dynamic-island (no-ff). Latent host assumption noted: webServer uses python3 (fine on mac CI).
