@@ -107,6 +107,21 @@ const FIXTURES: readonly Fixture[] = [
     notification: base({ title: "Custom theme", style: STYLE_27 }),
   },
   {
+    // T5a decision: primary + danger action buttons and a PAUSED countdown
+    // (a --wait decision stays expanded, auto-dismiss paused).
+    id: "expanded-actions",
+    state: "expanded",
+    notification: base({
+      title: "Ship to production?",
+      body: "main → prod · 12 commits",
+      icon: "rocket",
+      actions: [
+        { id: "ship", label: "Ship it", style: "primary" },
+        { id: "cancel", label: "Cancel", style: "danger" },
+      ],
+    }),
+  },
+  {
     // Near-max-height card for the notch-overhang check.
     id: "expanded-tall",
     state: "expanded",
