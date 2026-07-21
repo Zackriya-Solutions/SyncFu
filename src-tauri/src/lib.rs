@@ -220,6 +220,21 @@ async fn set_island_settings(
     Ok(next)
 }
 
+/// Report the honest, OS-derived screen-capture status of the island (T9).
+///
+/// Derived only from the OS + version (never a `sharingType` read-back, which is false safety per
+/// G2). Returns the tri-state (ON / BEST_EFFORT / UNSUPPORTED / UNKNOWN) plus a reason and the live
+/// `hideFromScreenCapture` toggle, so T7b can render an honest status. The exclusion flag itself is
+/// applied unconditionally as defense-in-depth (island.rs); this command only describes the outcome.
+#[tauri::command]
+async fn get_island_capture_status(
+    app: tauri::AppHandle,
+) -> Result<overlay::island::IslandCaptureStatus, String> {
+    let path = settings::settings_path(&app)?;
+    let enabled = settings::load_settings(&path).hide_from_screen_capture;
+    Ok(overlay::island::current_capture_status(enabled))
+}
+
 /// Toggle whether the island window receives pointer events (in place, never rebuilds - D3/G2).
 #[tauri::command]
 async fn set_island_interactive(app: tauri::AppHandle, interactive: bool) -> Result<(), String> {
@@ -333,6 +348,7 @@ pub fn run() {
             get_island_settings,
             set_island_settings,
             set_island_interactive,
+            get_island_capture_status,
         ])
         .setup(|app| {
             info!("syncfu starting up");

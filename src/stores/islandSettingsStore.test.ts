@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { useIslandSettingsStore } from "./islandSettingsStore";
 import {
   DEFAULT_ISLAND_SETTINGS,
+  type IslandCaptureStatus,
   type IslandSettings,
 } from "@/types/islandSettings";
 
@@ -53,5 +54,32 @@ describe("islandSettingsStore", () => {
     expect(useIslandSettingsStore.getState().settings).toEqual(
       DEFAULT_ISLAND_SETTINGS
     );
+  });
+
+  it("capture status starts null (never inferred client-side, G2)", () => {
+    expect(useIslandSettingsStore.getState().captureStatus).toBeNull();
+  });
+
+  it("mirrors the OS-derived capture status from get_island_capture_status", () => {
+    const status: IslandCaptureStatus = {
+      status: "best-effort",
+      reason: "Best effort only: macOS 15 and later can still capture this window.",
+      enabled: true,
+    };
+
+    useIslandSettingsStore.getState().setCaptureStatus(status);
+
+    expect(useIslandSettingsStore.getState().captureStatus).toEqual(status);
+  });
+
+  it("reset clears the capture status back to null", () => {
+    useIslandSettingsStore.getState().setCaptureStatus({
+      status: "on",
+      reason: "Hidden from screen capture on this macOS version.",
+      enabled: true,
+    });
+    useIslandSettingsStore.getState().reset();
+
+    expect(useIslandSettingsStore.getState().captureStatus).toBeNull();
   });
 });

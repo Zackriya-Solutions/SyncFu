@@ -50,4 +50,4 @@ tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", branch = "v2.
 core-graphics = "0.24"
 # Notch geometry via public NSScreen APIs (overlay/notch.rs). Verified by gate G1.
 objc2-app-kit = { version = "0.3", features = ["NSScreen"] }
-objc2-foundation = "0.3"
+objc2-foundation = { version = "0.3", features = ["NSProcessInfo"] }
