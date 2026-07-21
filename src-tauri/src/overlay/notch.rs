@@ -17,6 +17,9 @@ pub struct NotchGeometry {
     pub screen_width: f64,
     /// Physical cutout width in points (boring.notch formula).
     pub notch_width: f64,
+    /// Physical cutout height in points, read from `safeAreaInsets().top` (the menu-bar band that
+    /// flanks the notch == the cutout height). G1 measured 32.0 on real hardware.
+    pub notch_height: f64,
 }
 
 /// Pure boring.notch formula: the physical cutout width from the display frame width and the two
@@ -37,7 +40,8 @@ pub fn notch_geometry(mtm: objc2_foundation::MainThreadMarker) -> Option<NotchGe
     use objc2_app_kit::NSScreen;
 
     NSScreen::screens(mtm).iter().find_map(|screen| {
-        if screen.safeAreaInsets().top <= 0.0 {
+        let top = screen.safeAreaInsets().top;
+        if top <= 0.0 {
             return None; // non-notch display -> caller uses the floating-capsule fallback
         }
         let frame = screen.frame();
@@ -46,6 +50,7 @@ pub fn notch_geometry(mtm: objc2_foundation::MainThreadMarker) -> Option<NotchGe
         Some(NotchGeometry {
             screen_width: frame.size.width,
             notch_width: notch_width_from(frame.size.width, l, r),
+            notch_height: top,
         })
     })
 }

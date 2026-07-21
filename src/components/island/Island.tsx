@@ -1,8 +1,10 @@
+import type { CSSProperties } from "react";
 import {
   forwardRef,
   useEffect,
   useImperativeHandle,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -17,8 +19,10 @@ import { buildStyleVars } from "@/lib/styleVars";
 import { resolveTimeout } from "@/lib/timeout";
 import {
   createMorphController,
+  effectiveIslandSettings,
   type IslandState,
   type MorphController,
+  type NotchGeometry,
 } from "@/lib/islandMorph";
 import { IslandCompact } from "./IslandCompact";
 import { IslandExpanded } from "./IslandExpanded";
@@ -136,6 +140,13 @@ interface IslandProps {
   /** Auto-dismiss handler. The host wires this to `dismiss_notification`, the
    *  same path the card uses -> waiter Dismissed -> CLI exit 1. */
   readonly onDismiss?: (notificationId: string) => void;
+  /** Physical notch cutout geometry (BUG A). In notch mode WITH a geometry the compact pill widens
+   *  to seat visible wings beside the cutout and its content lays out wing-aware; `null`/float keeps
+   *  the pre-existing layout. Supplied by IslandOverlay; omitted (null) in the unit/render harnesses. */
+  readonly notchGeometry?: NotchGeometry | null;
+  /** Settle report (BUG B): fires with the shape's window-relative bounds on every morph settle, so
+   *  the host can push the click-through hitbox to the backend. */
+  readonly onSettle?: (rect: { x: number; y: number; w: number; h: number }) => void;
 }
 
 export const Island = forwardRef<IslandHandle, IslandProps>(function Island(
@@ -147,6 +158,8 @@ export const Island = forwardRef<IslandHandle, IslandProps>(function Island(
     position: positionProp,
     onAction,
     onDismiss,
+    notchGeometry = null,
+    onSettle,
   },
   ref
 ) {
@@ -163,15 +176,27 @@ export const Island = forwardRef<IslandHandle, IslandProps>(function Island(
   const position = positionProp ?? settings.position;
   const isLight = useResolvedLight(appearance);
   const mirrored = mode === "float" && position === "bottom-center";
+  // Wing layout is active only in notch mode WITH a known cutout geometry (BUG A); everything else
+  // keeps the pre-existing compact layout so float mode and jsdom/harness renders are unchanged.
+  const wings = mode === "notch" && notchGeometry != null;
+  // The geometry the morph controller targets, threaded through the SAME configure/applySettings
+  // path the raw settings take: in notch mode the compact width/height widen to seat the wings.
+  const effSettings = useMemo(
+    () => effectiveIslandSettings(settings, mode, notchGeometry),
+    [settings, mode, notchGeometry]
+  );
 
   const islandRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const pathRef = useRef<SVGPathElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<MorphController | null>(null);
-  const settingsRef = useRef(settings);
-  settingsRef.current = settings;
+  const settingsRef = useRef(effSettings);
+  settingsRef.current = effSettings;
   const isReduced = () => settingsRef.current.reducedMotion || prefersReducedMotion();
+  // Hold the latest onSettle so the once-created controller always calls the current reporter.
+  const onSettleRef = useRef(onSettle);
+  onSettleRef.current = onSettle;
 
   const controlled = state != null;
   const [renderState, setRenderState] = useState<IslandState>(state ?? "expanded");
@@ -205,7 +230,19 @@ export const Island = forwardRef<IslandHandle, IslandProps>(function Island(
     const content = contentRef.current;
     if (!island || !svg || !path || !content) return;
 
-    const controller = createMorphController({ island, svg, path, content });
+    // Report the settled shape bounds (window-relative logical px) as the click-through hitbox
+    // (BUG B). getBoundingClientRect is in CSS px relative to the window's top-left (no window
+    // decorations), matching the backend's window-relative hitbox space.
+    const reportHitbox = () => {
+      const report = onSettleRef.current;
+      if (!report) return;
+      const r = island.getBoundingClientRect();
+      report({ x: r.x, y: r.y, w: r.width, h: r.height });
+    };
+    const controller = createMorphController(
+      { island, svg, path, content },
+      { onSettle: reportHitbox }
+    );
     controllerRef.current = controller;
     // Creation-read path: adopt the persisted settings BEFORE arriving, so the
     // first paint already has the user's geometry (no snap-then-jump).
@@ -253,9 +290,9 @@ export const Island = forwardRef<IslandHandle, IslandProps>(function Island(
       settingsMounted.current = true;
       return;
     }
-    controller.applySettings(settings, isReduced());
+    controller.applySettings(effSettings, isReduced());
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings]);
+  }, [effSettings]);
 
   // Live appearance/position updates (T8): re-fill and, on a mirror flip, repaint
   // the shape in place (no morph, D3). Runs after the mount snap's initial setSurface.
@@ -317,6 +354,15 @@ export const Island = forwardRef<IslandHandle, IslandProps>(function Island(
   // SVG path (`var(--s-card-bg, ...)`) and the content (invariant c). Compact
   // keeps its hardcoded #000000 fill and never reads these (invariant d).
   const styleVars = buildStyleVars(notification.style, notification.font);
+  // In wing mode publish the cutout width/height as CSS vars so the compact three-zone grid keeps a
+  // dead-center strip the notch width wide, and the expanded card drops its content below the cutout.
+  const rootStyle: CSSProperties = wings
+    ? ({
+        ...styleVars,
+        "--di-notch-w": `${notchGeometry!.widthLogical}px`,
+        "--di-notch-h": `${notchGeometry!.heightLogical}px`,
+      } as CSSProperties)
+    : styleVars;
   // Light appearance re-skins content text to a dark ink ramp on the SAME surfaces
   // the controller lightens (expanded card + float compact pill); the notch
   // compact pill keeps its light text on the black fill (invariant d).
@@ -327,7 +373,8 @@ export const Island = forwardRef<IslandHandle, IslandProps>(function Island(
       className={lightContent ? "di-island di-light-content" : "di-island"}
       data-testid="island"
       data-state={renderState}
-      style={styleVars}
+      data-notch={wings ? "true" : undefined}
+      style={rootStyle}
       ref={islandRef}
       onClick={handleToggle}
     >
@@ -338,7 +385,7 @@ export const Island = forwardRef<IslandHandle, IslandProps>(function Island(
         {expanded ? (
           <IslandExpanded notification={notification} onAction={onAction} />
         ) : (
-          <IslandCompact notification={notification} />
+          <IslandCompact notification={notification} wings={wings} />
         )}
       </div>
     </div>

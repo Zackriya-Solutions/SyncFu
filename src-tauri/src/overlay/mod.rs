@@ -1,3 +1,4 @@
+pub mod hover;
 pub mod island;
 pub mod panel;
 

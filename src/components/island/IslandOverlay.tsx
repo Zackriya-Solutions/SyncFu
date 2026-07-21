@@ -5,6 +5,7 @@ import { useIslandSettingsStore } from "@/stores/islandSettingsStore";
 import type { IslandSettings } from "@/types/islandSettings";
 import type { IslandRow, IslandSnapshot } from "@/types/islandSnapshot";
 import { EMPTY_ISLAND_SNAPSHOT } from "@/types/islandSnapshot";
+import type { NotchGeometry } from "@/lib/islandMorph";
 import { Island } from "./Island";
 import { IslandGroup } from "./IslandGroup";
 
@@ -30,6 +31,21 @@ import { IslandGroup } from "./IslandGroup";
 export function IslandOverlay() {
   const setSettings = useIslandSettingsStore((s) => s.setSettings);
   const [snapshot, setSnapshot] = useState<IslandSnapshot>(EMPTY_ISLAND_SNAPSHOT);
+  // Physical notch cutout geometry (BUG A): creation read + live `island:geometry` event. Null on
+  // non-notch / non-macOS displays -> Island keeps the float layout.
+  const [notchGeometry, setNotchGeometry] = useState<NotchGeometry | null>(null);
+
+  // Push the settled shape bounds to the backend as the click-through hitbox (BUG B). Reported on
+  // morph settle (via Island's onSettle) so the cursor tracker can make the shown capsule
+  // interactive; the envelope around it stays click-through.
+  const reportHitbox = useCallback(
+    (rect: { x: number; y: number; w: number; h: number }) => {
+      core.invoke("set_island_hitbox", rect).catch((err) =>
+        console.error("[syncfu] set_island_hitbox failed:", err)
+      );
+    },
+    []
+  );
 
   // Island action path == card action path (T5a parity, no new transport): fire
   // the row's primary action via `action_callback` -> WaiterRegistry.notify ->
@@ -110,6 +126,28 @@ export function IslandOverlay() {
     };
   }, [setSettings]);
 
+  // Notch geometry: creation read + live event (mirrors the snapshot/settings pattern).
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let active = true;
+    (async () => {
+      try {
+        const initial = await core.invoke<NotchGeometry | null>("get_notch_geometry");
+        if (active) setNotchGeometry(initial ?? null);
+      } catch {
+        // No backend (browser harness) or non-notch: keep null (float layout).
+      }
+      unlisten = await tauriEvent.listen<NotchGeometry | null>("island:geometry", (ev) => {
+        setNotchGeometry((ev.payload as NotchGeometry | null) ?? null);
+      });
+      if (!active) unlisten?.();
+    })();
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, []);
+
   const { mode, position } = useIslandSettingsStore((s) => s.settings);
   const layoutPosition = mode === "float" ? position : "center";
 
@@ -134,6 +172,8 @@ export function IslandOverlay() {
           notification={single}
           onAction={handleAction}
           onDismiss={handleDismiss}
+          notchGeometry={notchGeometry}
+          onSettle={reportHitbox}
         />
       )}
       {snapshot.count > 1 && (

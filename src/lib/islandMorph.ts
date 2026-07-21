@@ -28,6 +28,50 @@ import {
 
 export type IslandState = "compact" | "expanded";
 
+/** Physical notch cutout geometry (BUG A), mirror of the Rust `NotchGeometryDto`. Logical points ==
+ *  CSS px on macOS. `null` on non-notch / non-macOS displays (the frontend keeps the float layout). */
+export interface NotchGeometry {
+  readonly widthLogical: number;
+  readonly heightLogical: number;
+}
+
+/** Minimum visible wing (px) on EACH side of the cutout, so the leading glyph and the trailing
+ *  live-activity slot fit fully beside the physical notch instead of behind it (BUG A). Measured:
+ *  the trailing live-activity (16px ring + 6px gap + ~28px percent ~= 50px) plus the ~6px shoulder
+ *  inset needs ~56px; 60 gives a few px of slack (see island.css notch wing layout). */
+export const MIN_WING = 60;
+
+/** Extra height (px) below the cutout so the pill overhangs it slightly (boring.notch overhang). */
+export const NOTCH_UNDERHANG = 4;
+
+/** Effective compact pill width in notch mode: at least wide enough to seat a MIN_WING wing on each
+ *  side of the cutout, never narrower than the user's setting. */
+export function effectiveCompactWidth(userWidth: number, geo: NotchGeometry): number {
+  return Math.max(userWidth, geo.widthLogical + 2 * MIN_WING);
+}
+
+/** Effective compact pill height in notch mode: at least the cutout height plus the underhang. */
+export function effectiveCompactHeight(userHeight: number, geo: NotchGeometry): number {
+  return Math.max(userHeight, geo.heightLogical + NOTCH_UNDERHANG);
+}
+
+/** Adopt the physical notch geometry into the compact geometry the morph controller targets. Only
+ *  notch mode WITH a known geometry is adjusted; float mode and the no-geometry case (jsdom/tests,
+ *  pre-event) return the settings unchanged, so every existing baseline is byte-identical (BUG A).
+ *  Threaded through the SAME configure/applySettings path settings take - never a parallel one. */
+export function effectiveIslandSettings(
+  settings: IslandSettings,
+  mode: IslandMode,
+  geo: NotchGeometry | null
+): IslandSettings {
+  if (mode !== "notch" || !geo) return settings;
+  return {
+    ...settings,
+    compactWidth: effectiveCompactWidth(settings.compactWidth, geo),
+    height: effectiveCompactHeight(settings.height, geo),
+  };
+}
+
 /** Surface inputs the appearance/position layer (T8) feeds the controller:
  *  `light` (resolved dark/light/auto), `mode` (float compact pills go light too),
  *  and `mirrored` (bottom-center flips the notch path vertically). */
@@ -131,8 +175,19 @@ function countFrame(): void {
   window.__islandFrames = (window.__islandFrames ?? 0) + 1;
 }
 
-export function createMorphController(els: MorphElements): MorphController {
+/** Optional hooks the host wires into the controller. `onSettle` fires once each time the springs
+ *  reach rest (and on every snap), so the host can report the settled shape bounds as the click-
+ *  through hitbox (BUG B) - on settle, not per frame. */
+export interface MorphOptions {
+  readonly onSettle?: () => void;
+}
+
+export function createMorphController(
+  els: MorphElements,
+  opts: MorphOptions = {}
+): MorphController {
   const { island, svg, path, content } = els;
+  const { onSettle } = opts;
   // The live settings the geometry springs target. Seeded from the D4 defaults
   // (identical to the MORPH/RADII spring seeds below), then replaced by
   // configure()/applySettings() so a settings change re-targets without
@@ -152,6 +207,9 @@ export function createMorphController(els: MorphElements): MorphController {
 
   let state: IslandState = "compact";
   let pendingMeasure: number | null = null;
+  // Whether the springs were at rest on the previous frame, so onSettle fires exactly once on the
+  // non-resting -> resting edge (never every idle frame - the loop parks itself at rest anyway).
+  let wasResting = true;
 
   // Appearance/position surface (T8), defaulting to the dark top notch so the very
   // first paint (before setSurface) matches the pre-T8 behavior exactly.
@@ -209,6 +267,9 @@ export function createMorphController(els: MorphElements): MorphController {
     // Hand the height back to in-flow content only once expanded has settled.
     paint(W, H, t, b, resting && state === "expanded");
     publishSettled(resting);
+    // Fire the settle hook once on the non-resting -> resting edge (BUG B hitbox report).
+    if (resting && !wasResting) onSettle?.();
+    wasResting = resting;
     return !resting; // false parks the loop (A6 eps-rest -> idle cost 0%)
   });
 
@@ -278,6 +339,8 @@ export function createMorphController(els: MorphElements): MorphController {
     for (const s of springs) s.set(s.target);
     paint(sW.x, sH.x, sT.x, sB.x, next === "expanded");
     publishSettled(true);
+    wasResting = true;
+    onSettle?.();
   }
 
   return {
@@ -295,9 +358,12 @@ export function createMorphController(els: MorphElements): MorphController {
         for (const s of springs) s.set(s.target);
         paint(sW.x, sH.x, sT.x, sB.x, state === "expanded");
         publishSettled(true);
+        wasResting = true;
+        onSettle?.();
         return;
       }
       publishSettled(false);
+      wasResting = false;
       loop.kick();
     },
     snap,

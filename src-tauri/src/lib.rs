@@ -271,6 +271,26 @@ async fn set_island_interactive(app: tauri::AppHandle, interactive: bool) -> Res
     Ok(())
 }
 
+/// Report the live notch cutout geometry to the island webview (BUG A). `None` on non-notch / non-
+/// macOS displays, where the frontend keeps the floating-capsule layout. The window's creation-read
+/// path calls this on mount; monitor changes arrive via the `island:geometry` event.
+#[tauri::command]
+async fn get_notch_geometry(
+    app: tauri::AppHandle,
+) -> Result<Option<overlay::island::NotchGeometryDto>, String> {
+    Ok(overlay::island::notch_geometry_dto(&app))
+}
+
+/// Store the island's true visible-shape hitbox (BUG B), in window-relative logical px. The frontend
+/// reports it on morph settle and on show/hide (NOT per frame); the backend cursor tracker toggles
+/// the window interactive only while the pointer is inside it, keeping the transparent envelope
+/// click-through. In place, never rebuilds the window (D3/G2).
+#[tauri::command]
+async fn set_island_hitbox(x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
+    overlay::hover::set_hitbox(overlay::hover::Hitbox { x, y, w, h });
+    Ok(())
+}
+
 /// Read the current authoritative island snapshot (D5 / G10). The creation-read
 /// the island window makes on mount so a window that starts AFTER notifications
 /// already exist reconciles immediately (closes W3 undercount / late-listener).
@@ -399,6 +419,8 @@ pub fn run() {
             set_island_interactive,
             get_island_capture_status,
             get_island_snapshot,
+            get_notch_geometry,
+            set_island_hitbox,
         ])
         .setup(|app| {
             info!("syncfu starting up");

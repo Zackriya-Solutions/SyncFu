@@ -287,7 +287,7 @@ pub(crate) fn get_cursor_monitor_info(app: &AppHandle) -> Option<MonitorInfo> {
 /// Get the current mouse cursor position in physical pixels.
 /// Returns (x, y) or None if unavailable.
 #[cfg(target_os = "macos")]
-fn get_cursor_position() -> Option<(f64, f64)> {
+pub(crate) fn get_cursor_position() -> Option<(f64, f64)> {
     use core_graphics::event::CGEvent;
     use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
 
@@ -298,7 +298,7 @@ fn get_cursor_position() -> Option<(f64, f64)> {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn get_cursor_position() -> Option<(f64, f64)> {
+pub(crate) fn get_cursor_position() -> Option<(f64, f64)> {
     // TODO: Implement for Windows/Linux
     None
 }
