@@ -220,3 +220,16 @@ world - newest data point for the A1 finding).
 - T7a REVIEW: CLEAN (defaults field-exact vs mockup; clamps both paths; atomic same-fs rename;
   conditional side effects verified; G6/G12 hold). MERGED. 8/17.
 - T9 now unblocked (G2+T7a); dispatching in parallel with T4b.
+- T9 RETURNED: capture-status derivation shipped (pure fn + injected facts; NSProcessInfo product
+  major; cmd /C ver fail-safe; Linux constant). Matrix implemented per OQ-1/OQ-5; flag applied
+  unconditionally as defense-in-depth; loop-test asserts macOS 15..40 never ON. 11 Rust + 3 TS
+  tests. Commit dc26d39. Review dispatched. T4b still running.
+- T9 REVIEW: CLEAN (invariant b structurally impossible to break - product-major compared directly,
+  no Darwin conversion; fail-safe verified branch-by-branch; ver-parse fragile-but-fail-safe
+  accepted; 4th BestEffort state justified as the OQ-1 honesty carrier). MERGED. 9/17.
+- Waiting on T4b (last blocker for the T5a/T7b/T8 fan-out).
+- T4b RETURNED: morph engine (islandMorph.ts controller + thin React host). IslandHandle
+  {expand,collapse,state} for T5; __islandSettled + __islandFrames hooks; arrive-expanded ->
+  2600ms hold -> auto-collapse. Self-caught: 0.02px baseline drift (content-driven height at rest),
+  first-frame dip (sync measure in setTargets), reduced-motion honesty (1000/100 is ~62 frames, now
+  true snap). 114 vitest + 62 playwright x2. Commit 4258639. Review dispatched.
