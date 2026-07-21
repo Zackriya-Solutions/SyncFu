@@ -1,11 +1,14 @@
-/* Dynamic Island static styles (T4a). Ported from the approved mockup rev 8
- * (.di-compact / .di-expanded anatomy). The capsule SHAPE is an inline SVG
- * (Island.tsx) rendered behind this content; these rules only lay out and color
- * the content. The 27 `--s-*` overrides resolve through the SAME buildStyleVars
- * map as the card (invariant c), so any subset the island shows matches the card.
+/* Dynamic Island styles (T4a static + T4b morph). Ported from the approved
+ * mockup rev 8 (.di-compact / .di-expanded anatomy). The capsule SHAPE is an
+ * inline SVG (Island.tsx) rendered behind this content; the morph controller
+ * (islandMorph.ts) animates that SVG + the box geometry and republishes the
+ * `--di-wall` inset every frame. These rules lay out and color the content and
+ * derive its wall inset from `--di-wall`, so the padding tracks the morph with
+ * ZERO per-frame JS on the content node. The 27 `--s-*` overrides resolve
+ * through the SAME buildStyleVars map as the card (invariant c).
  *
- * No morph/transition here - T4b owns motion. Fixed transparent envelope; the
- * island is centered at the top of its window. */
+ * Fixed transparent envelope; the island is centered at the top of its window.
+ * The OS frame NEVER resizes (D3) - only the shape + content morph. */
 
 .island-root {
   position: fixed;
@@ -17,13 +20,30 @@
   pointer-events: none;
 }
 
-/* The visible capsule. Width/height come from Island.tsx (match the SVG box). */
+/* The visible capsule. Width/height + `--di-wall` are written imperatively by
+ * the morph controller (islandMorph.ts) every frame - never in JSX, so a React
+ * re-render can never clobber a live morph. `--di-wall` defaults to the compact
+ * shoulder inset so the content padding is correct on the very first paint. */
 .di-island {
+  --di-wall: 6px;
   position: relative;
   pointer-events: auto;
+  transform-origin: top center;
   font-family:
     -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
   filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.55));
+}
+
+/* Hover lift (FR-6): 1.028 scale, top-anchored, 150ms after a 150ms open delay
+ * (mirrors HOVER in src/lib/spring.ts). Pure CSS transform/opacity so an idle
+ * hover costs no rAF frames (R-PERF). Suppressed under reduced motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .di-island {
+    transition: transform 150ms cubic-bezier(0.22, 1, 0.36, 1) 150ms;
+  }
+  .di-island:hover {
+    transform: scale(1.028);
+  }
 }
 
 /* Inline SVG notch shape, stretched to the capsule box behind the content. */
@@ -37,8 +57,11 @@
 }
 
 /* Content sits above the shape in normal flow, so its natural height drives the
- * expanded capsule height (Island.tsx measures it). Horizontal padding is
- * applied inline from wallPadding (R-WALL); vertical padding is per-state below. */
+ * expanded capsule height (the controller measures it). Horizontal padding is
+ * the wall inset (R-WALL): max(base, --di-wall + margin), matching wallPadding()
+ * in notchPath.ts exactly (compact base 14 + margin 4; card base 16 + margin 5).
+ * Deriving it from the morph-driven `--di-wall` keeps text/icons off the concave
+ * shoulder in EVERY frame with no per-frame JS on this node. */
 .di-content {
   position: relative;
   z-index: 1;
@@ -49,6 +72,13 @@
   height: 100%;
   display: flex;
   align-items: center;
+  padding-left: max(14px, calc(var(--di-wall) + 4px));
+  padding-right: max(14px, calc(var(--di-wall) + 4px));
+}
+
+.di-island[data-state="expanded"] .di-content {
+  padding-left: max(16px, calc(var(--di-wall) + 5px));
+  padding-right: max(16px, calc(var(--di-wall) + 5px));
 }
 
 /* ---- Compact pill -------------------------------------------------------- */

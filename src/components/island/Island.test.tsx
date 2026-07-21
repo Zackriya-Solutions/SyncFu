@@ -103,13 +103,17 @@ describe("Island", () => {
     expect(island.style.getPropertyValue("--s-accent-color")).toBe("#123456");
   });
 
-  it("insets content horizontally by the wall padding (R-WALL)", () => {
+  it("publishes the expanded shoulder inset as --di-wall for the R-WALL padding", () => {
+    // Content padding now derives from the morph-driven `--di-wall` in CSS
+    // (max(16px, calc(var(--di-wall) + 5px)) = 24px for the expanded shoulder),
+    // so the inset tracks every morph frame with no per-frame JS. jsdom cannot
+    // compute calc(); we assert the published inset here and leave the resolved
+    // pixel padding to the Playwright baseline (island-render.spec.ts).
     const { container } = render(
       <Island notification={makeNotification()} state="expanded" />
     );
-    const content = container.querySelector(".di-content") as HTMLElement;
-    // wallPadding(19, "card") = max(16, 19 + 5) = 24 for the expanded shoulder.
-    expect(content.style.paddingLeft).toBe("24px");
-    expect(content.style.paddingRight).toBe("24px");
+    const island = container.querySelector(".di-island") as HTMLElement;
+    // Expanded top-shoulder radius is 19 (RADII.expandedTop), snapped on arrival.
+    expect(island.style.getPropertyValue("--di-wall")).toBe("19.0px");
   });
 });
