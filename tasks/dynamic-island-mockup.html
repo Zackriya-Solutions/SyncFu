@@ -1,0 +1,1608 @@
+<!doctype html>
+<html lang="en" data-platform="macos">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>syncfu – Dynamic Island · design mockup v2</title>
+<style>
+/* ============================================================================
+   syncfu – Dynamic Island · DESIGN MOCKUP v2 (agent-built)
+   ONE island engine, ONE token block, zero duplicated spring/path code.
+   Concave-shoulder notch geometry (boring.notch / DynamicNotchKit), rendered
+   as an inline SVG <path> with an rAF damped-spring tween on W/H/t/b.
+   ========================================================================== */
+
+/* ---------- THE token block ---------- */
+:root {
+  /* Engine-read custom properties (playground writes, engine reads) */
+  --di-w: 218px;
+  --di-h: 34px;
+  --di-exp-w: 380px;
+  --di-opacity: 0.94;
+  --di-top-r: 6;
+  --di-bot-r: 14;
+  --di-accent: #4a9eff;
+  --di-shoulder-scale: 1;
+
+  /* Priority accents (product-derived) */
+  --accent-low: #2ed573;
+  --accent-normal: #4a9eff;
+  --accent-high: #ffa502;
+  --accent-critical: #ff3b30;
+  --accent: var(--accent-normal);
+
+  /* Type */
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", "Helvetica Neue", sans-serif;
+  --font-mono: "SF Mono", "JetBrains Mono", "Fira Code", ui-monospace, Menlo, monospace;
+
+  /* Page palette (dark) */
+  --page-bg: #0a0b0f;
+  --ink: #f4f4f6;
+  --ink-mid: rgba(244,244,246,0.62);
+  --ink-dim: rgba(244,244,246,0.40);
+  --ink-faint: rgba(244,244,246,0.26);
+  --line: rgba(255,255,255,0.08);
+  --line-2: rgba(255,255,255,0.14);
+  --panel: #14161c;
+  --panel-2: #1a1d25;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  background:
+    radial-gradient(1100px 620px at 15% -8%, #191a26 0%, transparent 55%),
+    radial-gradient(900px 560px at 92% 0%, #1a1420 0%, transparent 52%),
+    var(--page-bg);
+  background-attachment: fixed;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  line-height: 1.5;
+}
+
+.page { max-width: 1200px; margin: 0 auto; padding: 44px 26px 120px; }
+
+/* ---------- masthead ---------- */
+.masthead { margin-bottom: 10px; }
+.masthead .kicker {
+  font-family: var(--font-mono);
+  font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--accent-normal); font-weight: 600;
+}
+.masthead h1 { font-size: clamp(28px, 4vw, 40px); font-weight: 700; letter-spacing: -0.02em; margin-top: 8px; line-height: 1.04; }
+.masthead h1 .g { background: linear-gradient(90deg,#4a9eff,#a06bff); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.masthead p { color: var(--ink-mid); max-width: 66ch; margin-top: 12px; font-size: 15px; }
+.masthead p code, .lede code {
+  font: 500 12.5px/1 var(--font-mono); background: var(--panel-2);
+  border: 1px solid var(--line); padding: 1px 6px; border-radius: 5px; color: #cdd4e0;
+}
+.legend {
+  display: flex; flex-wrap: wrap; gap: 10px 22px; margin-top: 22px;
+  padding: 14px 18px; border: 1px solid var(--line);
+  border-radius: 14px; background: rgba(255,255,255,0.02);
+  font-size: 13px; color: var(--ink-mid);
+}
+.legend b { color: var(--ink); font-weight: 600; }
+.legend .swatch { display: inline-block; width: 11px; height: 11px; border-radius: 3px; vertical-align: middle; margin-right: 6px; }
+
+/* ---------- section chrome ---------- */
+section { margin-top: 66px; scroll-margin-top: 20px; }
+.section-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 22px; }
+.section-head .n {
+  font-family: var(--font-mono); font-size: 12px; color: var(--ink-dim);
+  border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 7px; flex: none;
+}
+.section-head h2 { font-size: 22px; font-weight: 650; letter-spacing: -0.01em; }
+.section-head p { color: var(--ink-dim); font-size: 13px; margin-left: auto; max-width: 42ch; text-align: right; }
+@media (max-width: 640px){ .section-head p { display: none; } }
+
+/* ============================================================================
+   ISLAND ENGINE – shared visual layer (used by every section)
+   ========================================================================== */
+.di-island {
+  position: absolute; top: 0; left: 50%;
+  transform: translateX(-50%) scale(var(--di-hover, 1));
+  transform-origin: top center;
+  transition: transform .15s cubic-bezier(.22,1,.36,1);
+  transition-delay: .15s;
+  will-change: transform, width, height;
+  contain: layout style;
+  cursor: pointer;
+}
+.di-island:hover { --di-hover: 1.028; }
+.di-pop { position: absolute; inset: 0; transform: scale(var(--di-pop, 1)); transform-origin: top center; }
+.di-shape {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  display: block; overflow: visible; pointer-events: none;
+  filter: drop-shadow(0 8px 20px rgba(0,0,0,0.6));
+}
+.di-content { position: absolute; inset: 0; overflow: hidden; }
+.di-layer { position: absolute; inset: 0; transform-origin: top center; will-change: transform, opacity, filter; }
+.di-inner { color: #fff; }
+.di-inner.cmp-wrap { height: 100%; display: flex; align-items: center; }
+.di-inner.exp { padding: 0; }
+/* static (screenshot) islands: content flows so height auto-measures */
+.di-island.stat { position: relative; left: auto; transform: none; }
+.di-island.stat .di-content { position: absolute; }
+@media (prefers-reduced-motion: reduce) { .di-island { transition: none; } }
+
+/* ---------- content preset A: mockup card (hero / gallery / platforms / themes / anatomy) ---------- */
+.compact-body {
+  position: absolute; inset: 0; display: flex; align-items: center;
+  justify-content: space-between; padding: 0 max(13px, calc(var(--di-wall, 6px) + 4px));
+}
+.compact-body .lead { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.compact-body .glyph { width: 18px; height: 18px; border-radius: 6px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; color: var(--accent); }
+.compact-body .glyph svg { width: 15px; height: 15px; }
+.compact-body .clabel { font-size: 12.5px; font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: 0.01em; }
+.compact-body .trail { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.compact-body .ctimer { font-family: var(--font-mono); font-size: 12px; font-variant-numeric: tabular-nums; color: var(--accent); }
+.pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 0 var(--accent); animation: pulse 1.8s infinite; }
+@keyframes pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 60%, transparent); }
+  70% { box-shadow: 0 0 0 7px color-mix(in srgb, var(--accent) 0%, transparent); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+@media (prefers-reduced-motion: reduce){ .pulse { animation: none; } }
+.mini-ring { width: 18px; height: 18px; }
+.mini-ring circle { fill: none; stroke-width: 2.5; }
+.mini-ring .track { stroke: rgba(255,255,255,0.15); }
+.mini-ring .fill { stroke: var(--accent); stroke-linecap: round; transform: rotate(-90deg); transform-origin: 50% 50%; }
+.count-badge { font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: #000; background: var(--accent); border-radius: 999px; padding: 1px 7px; min-width: 20px; text-align: center; }
+
+/* horizontal padding follows the live wall inset (+5px breathing room) so edge
+   content (leading icon, trailing timestamp) stays inside the shape walls and
+   clear of the corner curves at every radius */
+.expanded-body { padding: 14px max(16px, calc(var(--di-wall, 19px) + 5px)) 15px; display: flex; flex-direction: column; }
+.expanded-body.ebstatic { position: relative; }
+.expanded-body .erow { display: flex; align-items: flex-start; gap: 11px; }
+.ex-icon { width: 34px; height: 34px; border-radius: 9px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); border: 0.5px solid color-mix(in srgb, var(--accent) 22%, transparent); }
+.ex-icon svg { width: 18px; height: 18px; }
+.ex-text { flex: 1; min-width: 0; }
+.ex-head { display: flex; align-items: baseline; gap: 6px; }
+.ex-sender { font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-dim); }
+.ex-time { font-family: var(--font-mono); font-size: 11px; color: var(--ink-dim); margin-left: auto; font-variant-numeric: tabular-nums; }
+.ex-title { font-size: 14px; font-weight: 650; color: var(--ink); margin-top: 3px; letter-spacing: -0.005em; }
+.ex-body { font-size: 12.5px; color: var(--ink-mid); margin-top: 3px; }
+.ex-body code { font-family: var(--font-mono); font-size: 11.5px; background: rgba(255,255,255,0.07); padding: 1px 5px; border-radius: 5px; color: var(--ink); }
+.ex-progress { margin-top: 12px; }
+.pbar { height: 4px; border-radius: 3px; background: rgba(255,255,255,0.09); overflow: hidden; }
+.pbar > i { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
+.plabel { font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-dim); margin-top: 6px; display: flex; justify-content: space-between; }
+.ring-wrap { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
+.big-ring { width: 40px; height: 40px; flex-shrink: 0; }
+.big-ring circle { fill: none; stroke-width: 4; }
+.big-ring .track { stroke: rgba(255,255,255,0.10); }
+.big-ring .fill { stroke: var(--accent); stroke-linecap: round; transform: rotate(-90deg); transform-origin: 50% 50%; }
+.big-ring-pct { font-family: var(--font-mono); font-size: 13px; color: var(--ink); }
+.ex-actions { display: flex; gap: 8px; margin-top: 13px; }
+.ex-actions .btn { flex: 1; height: 30px; border-radius: 10px; font-size: 12.5px; font-weight: 600; font-family: inherit; display: flex; align-items: center; justify-content: center; gap: 5px; border: 0.5px solid; letter-spacing: 0.01em; cursor: pointer; }
+.ex-actions .btn svg { width: 14px; height: 14px; flex-shrink: 0; }
+.ex-actions .btn.primary { background: color-mix(in srgb, var(--accent) 90%, black); color: #fff; border-color: transparent; }
+.ex-actions .btn.secondary { background: rgba(255,255,255,0.07); color: var(--ink); border-color: rgba(255,255,255,0.10); }
+.ex-actions .btn.danger { background: var(--accent-critical); color: #fff; border-color: transparent; }
+/* inset hairline: normal-flow, no negative margins (they distort the auto-height
+   measure and can push the line into the corner curves). Side inset 20px keeps it
+   inside the walls at every radius slider setting. */
+.ex-countdown { margin: 12px 20px 0; height: 2px; border-radius: 2px; background: rgba(255,255,255,0.08); overflow: hidden; }
+.ex-countdown > i { display: block; height: 100%; width: 62%; background: var(--accent); opacity: 0.6; }
+
+/* ---------- faux desktop stage ---------- */
+.stage {
+  position: relative; border-radius: 18px; overflow: hidden;
+  border: 1px solid var(--line); min-height: 340px;
+  background:
+    radial-gradient(120% 90% at 20% -10%, #3a4d8f 0%, rgba(58,77,143,0) 55%),
+    radial-gradient(120% 120% at 90% 10%, #7b3f7a 0%, rgba(123,63,122,0) 50%),
+    linear-gradient(160deg, #1d2540 0%, #101526 60%, #0a0d17 100%);
+}
+.menubar {
+  position: relative; height: 34px; z-index: 3;
+  display: flex; align-items: center; justify-content: space-between; padding: 0 16px;
+  font-size: 13px; color: rgba(255,255,255,0.9);
+  background: rgba(0,0,0,0.28); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+}
+.menubar .left { display: flex; gap: 18px; align-items: center; }
+.menubar .left b { font-weight: 650; }
+.menubar .right { display: flex; gap: 16px; align-items: center; font-family: var(--font-mono); font-size: 12px; color: rgba(255,255,255,0.8); }
+/* real notch behaviour: while an island is expanded it can cover menubar items,
+   so fade the menubar text out (like macOS does around the physical notch). */
+.menubar .left, .menubar .right { transition: opacity .22s ease; }
+#stage.mb-hide .menubar .left, #stage.mb-hide .menubar .right { opacity: 0; }
+.mb-dim { opacity: 0 !important; }
+[data-platform="windows"] .menubar, [data-platform="linux"] .menubar { display: none; }
+.desktop-hint { position: absolute; inset: 50px 0 0; display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,0.14); font-size: 13px; font-family: var(--font-mono); pointer-events: none; }
+.island-mount { position: absolute; top: 0; left: 50%; z-index: 6; width: 0; height: 0; }
+[data-platform="windows"] .island-mount, [data-platform="linux"] .island-mount { top: 12px; }
+
+/* hero controls */
+.controls { display: flex; flex-wrap: wrap; gap: 10px; margin: 0 0 18px; }
+.controls button { font-family: var(--font-mono); font-size: 12px; color: var(--ink); background: rgba(255,255,255,0.06); border: 1px solid var(--line-2); border-radius: 9px; padding: 8px 14px; cursor: pointer; transition: background 120ms ease; }
+.controls button:hover { background: rgba(255,255,255,0.12); }
+.controls .sep { width: 1px; background: var(--line-2); margin: 0 4px; padding: 0; }
+.controls .active { background: var(--accent-normal); border-color: transparent; color: #fff; }
+
+/* ============================================================================
+   02 PLAYGROUND (scoped palette under .pg)
+   ========================================================================== */
+.pg {
+  --bg: #0b0d12; --card: #15181f; --card-2: #1a1e27; --card-3: #20252f;
+  --text: #e8ecf2; --text-dim: #8b94a4; --text-faint: #626b7b;
+  --border: #262c37; --border-soft: #20252f;
+  --pgaccent: #4a9eff; --accent-weak: #16273f;
+  --shadow: 0 1px 2px rgba(0,0,0,.4), 0 18px 46px rgba(0,0,0,.5);
+  --track: #2b323d; --swatch-ring: rgba(255,255,255,.16);
+}
+.pg[data-pg-theme="light"] {
+  --bg: #eef1f6; --card: #ffffff; --card-2: #f4f6fb; --card-3: #eef1f7;
+  --text: #171b22; --text-dim: #5c6675; --text-faint: #98a1b0;
+  --border: #dce2ec; --border-soft: #e7ebf3;
+  --pgaccent: #2b7fff; --accent-weak: #eaf2ff;
+  --shadow: 0 1px 2px rgba(20,30,50,.06), 0 12px 34px rgba(20,30,50,.10);
+  --track: #dbe1ea; --swatch-ring: rgba(20,30,50,.12);
+}
+.pg .grid2 { display: grid; grid-template-columns: minmax(0,1fr) 424px; gap: 26px; align-items: start; }
+@media (max-width: 960px) { .pg .grid2 { grid-template-columns: 1fr; } }
+.pg .stage-col { position: sticky; top: 20px; }
+@media (max-width: 960px) { .pg .stage-col { position: static; } }
+.pg .pgstage { position: relative; border-radius: 18px; overflow: hidden; aspect-ratio: 16 / 10; min-height: 300px; background: radial-gradient(120% 90% at 50% -20%, #33436b 0%, #1a2138 42%, #0a0d16 100%); border: 1px solid rgba(255,255,255,.06); box-shadow: var(--shadow); isolation: isolate; }
+/* narrow viewports: aspect-ratio + min-height would force the stage ~480px wide
+   and push the whole page into horizontal scroll. Drop the ratio and let it fill. */
+@media (max-width: 560px){ .pg .pgstage { aspect-ratio: auto; min-height: 210px; } }
+.pg .pmenubar { position: absolute; top: 0; left: 0; right: 0; height: 26px; z-index: 3; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; font-size: 11px; color: rgba(255,255,255,.82); background: linear-gradient(180deg, rgba(0,0,0,.34), rgba(0,0,0,0)); font-weight: 500; }
+.pg .pmenubar .mb-r { display: flex; gap: 13px; font-family: var(--font-mono); }
+.pg .pmenubar > div { transition: opacity .22s ease; }
+.pg .pgstage.mb-hide .pmenubar > div { opacity: 0; }
+.pg #island-host { position: absolute; top: 0; left: 50%; z-index: 4; width: 0; height: 0; }
+.pg #island-host.float { top: 16px; }
+.pg #island-host.pos-left .di-island { left: 0; transform: scale(var(--di-hover,1)); }
+.pg #island-host.pos-right .di-island { left: auto; right: 0; transform: scale(var(--di-hover,1)); }
+/* bottom-center: float only. Anchor the bottom edge ~12px above the stage floor and
+   grow UPWARD (like a volume OSD): the bottom stays put, height extends up. */
+.pg #island-host.float.pos-bottom-center { top: auto; bottom: 12px; }
+.pg #island-host.float.pos-bottom-center .di-island { top: auto; bottom: 0; transform-origin: bottom center; }
+.pg #island-host.float.pos-bottom-center .di-pop,
+.pg #island-host.float.pos-bottom-center .di-layer { transform-origin: bottom center; }
+.pg .stage-tools { display: flex; align-items: center; gap: 12px; margin-top: 14px; flex-wrap: wrap; }
+.pg .seg-demo { display: inline-flex; background: var(--card-2); border: 1px solid var(--border); border-radius: 10px; padding: 3px; }
+.pg .seg-demo button { font-family: var(--font-sans); font-size: 12.5px; font-weight: 550; color: var(--text-dim); border: none; background: transparent; padding: 6px 14px; border-radius: 7px; cursor: pointer; }
+.pg .seg-demo button.on { background: var(--card); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+.pg .stage-note { font-size: 12px; color: var(--text-faint); }
+.pg .stage-note code { font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); }
+.pg .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow); overflow: hidden; color: var(--text); }
+.pg .card-head { padding: 16px 18px 14px; border-bottom: 1px solid var(--border-soft); }
+.pg .card-title { display: flex; align-items: center; gap: 9px; font-size: 14px; font-weight: 650; }
+.pg .card-title .win { display: inline-flex; gap: 6px; }
+.pg .card-title .win i { width: 10px; height: 10px; border-radius: 50%; display: block; }
+.pg .card-title .win i:nth-child(1){ background:#ff5f57; } .pg .card-title .win i:nth-child(2){ background:#febc2e; } .pg .card-title .win i:nth-child(3){ background:#28c840; }
+.pg .card-cap { font-size: 12px; color: var(--text-dim); line-height: 1.5; margin-top: 9px; }
+.pg .card-cap b, .pg .card-cap code { color: var(--text); }
+.pg .group { padding: 6px 18px 4px; }
+.pg .group + .group { border-top: 1px solid var(--border-soft); }
+.pg .group-label { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--text-faint); font-weight: 600; padding: 12px 0 6px; }
+.pg .row2 { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; padding: 11px 0; border-top: 1px solid var(--border-soft); }
+.pg .group-label + .row2 { border-top: none; }
+.pg .row2.col { flex-direction: column; align-items: stretch; gap: 10px; }
+.pg .row-label { font-size: 13px; color: var(--text); flex: none; }
+.pg .row-label .sub { display: block; font-size: 11px; color: var(--text-faint); margin-top: 2px; font-weight: 400; max-width: 32ch; line-height: 1.4; }
+.pg .row-ctl { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.pg .val { font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); font-variant-numeric: tabular-nums; min-width: 46px; text-align: right; }
+.pg input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 22px; background: transparent; cursor: pointer; }
+.pg input[type=range]::-webkit-slider-runnable-track { height: 5px; border-radius: 3px; background: linear-gradient(90deg, var(--pgaccent) var(--fill,50%), var(--track) var(--fill,50%)); }
+.pg input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 17px; height: 17px; margin-top: -6px; border-radius: 50%; background: #fff; border: 1px solid rgba(0,0,0,.14); box-shadow: 0 1px 3px rgba(0,0,0,.3); }
+.pg input[type=range]::-moz-range-track { height: 5px; border-radius: 3px; background: var(--track); }
+.pg input[type=range]::-moz-range-thumb { width: 17px; height: 17px; border-radius: 50%; background: #fff; border: 1px solid rgba(0,0,0,.14); }
+.pg .slider-wrap { flex: 1; display: flex; align-items: center; gap: 12px; }
+.pg .seg { display: inline-flex; background: var(--card-2); border: 1px solid var(--border); border-radius: 9px; padding: 3px; }
+.pg .seg button { font-family: var(--font-sans); font-size: 12px; font-weight: 550; color: var(--text-dim); border: none; background: transparent; padding: 5px 12px; border-radius: 6px; cursor: pointer; white-space: nowrap; }
+.pg .seg button.on { background: var(--pgaccent); color: #fff; }
+.pg .seg button:disabled { opacity: .38; cursor: not-allowed; }
+.pg .seg.plain button.on { background: var(--card); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.14); }
+.pg .sw { position: relative; width: 40px; height: 24px; flex: none; }
+.pg .sw input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+.pg .sw .track { position: absolute; inset: 0; background: var(--track); border-radius: 999px; transition: background .18s ease; }
+.pg .sw .knob { position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; background: #fff; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,.3); transition: transform .18s cubic-bezier(.4,0,.2,1); }
+.pg .sw input:checked ~ .track { background: var(--pgaccent); }
+.pg .sw input:checked ~ .knob { transform: translateX(16px); }
+.pg .swatches { display: flex; flex-wrap: wrap; gap: 9px; }
+.pg .swatch { width: 26px; height: 26px; border-radius: 50%; cursor: pointer; border: none; padding: 0; box-shadow: 0 0 0 1px var(--swatch-ring) inset; }
+.pg .swatch.on { box-shadow: 0 0 0 2px var(--card), 0 0 0 4px currentColor; }
+.pg .swatch-lab { display: flex; align-items: center; gap: 8px; }
+.pg .swatch-custom { display: flex; align-items: center; gap: 9px; }
+.pg .swatch-custom input[type=color] { width: 30px; height: 30px; padding: 0; border: 1px solid var(--border); border-radius: 8px; background: var(--card-2); cursor: pointer; }
+.pg .hexval { font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); text-transform: uppercase; border: 1px solid var(--border); background: var(--card-2); border-radius: 8px; padding: 6px 9px; width: 92px; }
+.pg .prio-note { font-size: 11px; color: var(--text-faint); line-height: 1.5; margin-top: 2px; }
+.pg .prio-note b { color: var(--text-dim); font-weight: 600; }
+.pg .locknote { display: flex; gap: 8px; align-items: flex-start; font-size: 11.5px; color: var(--text-dim); background: var(--card-2); border: 1px solid var(--border-soft); border-radius: 9px; padding: 9px 11px; margin: 4px 0 10px; line-height: 1.45; }
+.pg .locknote svg { flex: none; margin-top: 1px; opacity: .7; }
+.pg .locknote code { font-family: var(--font-mono); font-size: 10.5px; color: var(--pgaccent); }
+.pg .btnrow { display: flex; flex-wrap: wrap; gap: 8px; padding: 4px 0 12px; }
+.pg .pbtn { font-family: var(--font-sans); font-size: 12.5px; font-weight: 550; padding: 8px 13px; border-radius: 9px; border: 1px solid var(--border); background: var(--card-2); color: var(--text); cursor: pointer; }
+.pg .pbtn:hover { border-color: var(--pgaccent); color: var(--pgaccent); }
+.pg .pbtn.reset { margin-left: auto; color: var(--text-dim); }
+.pg .presets-label { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--text-faint); font-weight: 600; padding: 12px 0 8px; }
+.pg .theme-btn { font-family: var(--font-mono); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--text-dim); background: var(--card); border: 1px solid var(--border); border-radius: 9px; padding: 8px 12px; cursor: pointer; }
+.pg .json-wrap { border-top: 1px solid var(--border-soft); padding: 14px 18px 18px; background: var(--card-2); }
+.pg .json-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 9px; }
+.pg .json-head .lab { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--text-faint); font-weight: 600; }
+.pg .json-head .copy { font-family: var(--font-mono); font-size: 11px; color: var(--pgaccent); background: none; border: none; cursor: pointer; }
+.pg pre.json { margin: 0; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.6; color: var(--text); background: var(--card-3); border: 1px solid var(--border-soft); border-radius: 10px; padding: 12px 14px; overflow-x: auto; white-space: pre; }
+.pg pre.json .k { color: var(--pgaccent); } .pg pre.json .n { color: #e0a06f; } .pg pre.json .b { color: #4ecb8a; } .pg pre.json .s { color: var(--text-dim); }
+/* playground island content preset */
+/* preset-B content roots follow the live wall inset too (same rule as preset A) */
+.di-compact { display: flex; align-items: center; gap: 9px; padding: 0 max(14px, calc(var(--di-wall, 6px) + 4px)); width: 100%; }
+.di-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--di-accent); box-shadow: 0 0 9px var(--di-accent); flex: none; }
+.di-dot.pulse2 { animation: dotpulse .9s ease-in-out infinite; }
+.di-dot.lg { width: 10px; height: 10px; }
+@keyframes dotpulse { 0%,100%{ opacity:1; } 50%{ opacity:.32; } }
+.di-sender { font-family: var(--font-mono); font-size: 11.5px; color: #f2f4f8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.di-badge { margin-left: auto; font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; color: #0a0d14; background: var(--di-accent); border-radius: 999px; min-width: 17px; height: 17px; padding: 0 5px; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.di-expanded { width: 100%; padding: 11px max(14px, calc(var(--di-wall, 19px) + 5px)) 12px; display: flex; flex-direction: column; gap: 9px; }
+.di-headr { display: flex; align-items: center; gap: 10px; }
+.di-titles { min-width: 0; flex: 1; }
+.di-title { color: #f4f6fa; font-size: 13px; font-weight: 600; line-height: 1.15; }
+.di-sub { font-family: var(--font-mono); font-size: 10.5px; color: #9aa4b4; margin-top: 2px; }
+.di-timer { font-family: var(--font-mono); font-size: 12px; color: var(--di-accent); flex: none; }
+.di-msg { color: #c7cedd; font-size: 12px; line-height: 1.4; }
+.di-actions2 { display: flex; gap: 7px; }
+.di-btn2 { flex: 1; font-family: var(--font-sans); font-size: 12px; font-weight: 550; padding: 6px 0; border-radius: 8px; border: none; cursor: pointer; color: #e8ecf2; background: rgba(255,255,255,.08); }
+.di-btn2.accent { background: var(--di-accent); color: var(--di-accent-ink, #06121f); }
+/* Light appearance: dark content on the light frosted surface (engine toggles
+   .di-light-content when the surface is light; see applyFill). */
+.di-island.di-light-content .di-sender { color: rgba(0,0,0,.62); }
+.di-island.di-light-content .di-title { color: rgba(0,0,0,.9); }
+.di-island.di-light-content .di-sub { color: rgba(0,0,0,.42); }
+.di-island.di-light-content .di-msg { color: rgba(0,0,0,.62); }
+.di-island.di-light-content .di-btn2 { background: rgba(0,0,0,.05); color: rgba(0,0,0,.9); border: 1px solid rgba(0,0,0,.10); }
+.di-island.di-light-content .di-btn2.accent { border-color: transparent; }
+
+/* ============================================================================
+   03 OVERFLOW models
+   ========================================================================== */
+.ov { --lo:#2ed573; --no:#4a9eff; --hi:#ffa502; --cr:#ff3b30; }
+.ov .stages { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px,1fr)); gap: 22px; }
+.ov .model { background: linear-gradient(180deg, var(--panel) 0%, #0d0d11 100%); border: 1px solid var(--line); border-radius: 18px; overflow: hidden; display: flex; flex-direction: column; }
+.ov .model-hd { padding: 18px 18px 14px; border-bottom: 1px solid var(--line); }
+.ov .model-tag { display: inline-flex; align-items: center; gap: 6px; font: 600 10px/1 var(--font-mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 9px; }
+.ov .model-tag .k { width: 16px; height: 16px; border-radius: 5px; display: grid; place-items: center; color: #fff; font-size: 9px; }
+.ov .model.a .k { background:#4a9eff; } .ov .model.b .k { background:#2ed573; } .ov .model.c .k { background:#ffa502; }
+.ov .rec { margin-left: auto; color: #2ed573; background: rgba(46,213,115,.12); border: 1px solid rgba(46,213,115,.3); padding: 2px 8px; border-radius: 999px; letter-spacing: .06em; }
+.ov .model-hd h3 { font-size: 18px; margin: 0 0 5px; font-weight: 620; letter-spacing: -.01em; }
+.ov .model-hd p { margin: 0; color: var(--ink-mid); font-size: 12.5px; min-height: 50px; }
+.ov .model-hd p code { font: 500 11.5px/1 var(--font-mono); background: var(--panel-2); border: 1px solid var(--line); padding: 1px 5px; border-radius: 4px; color: #cdd4e0; }
+.ov .ostage { position: relative; height: 430px; overflow: hidden; background: radial-gradient(120% 90% at 50% -20%, rgba(255,255,255,.05), transparent 60%), linear-gradient(160deg,#2a2140 0%,#1a2740 45%,#122033 100%); }
+.ov .model.b .ostage { background: linear-gradient(160deg,#203a2c 0%,#16302f 45%,#0f2230 100%); }
+.ov .model.c .ostage { background: linear-gradient(160deg,#3a2a20 0%,#33241c 45%,#241a2e 100%); }
+.ov .omenubar { position: absolute; top: 0; left: 0; right: 0; height: 24px; z-index: 1; background: rgba(0,0,0,.28); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: space-between; padding: 0 12px; font: 500 11px/1 var(--font-sans); color: rgba(255,255,255,.72); }
+.ov .omenubar .mb-l { display: flex; gap: 13px; align-items: center; } .ov .omenubar .mb-l b { font-weight: 700; }
+.ov .omenubar .mb-r { display: flex; gap: 11px; align-items: center; }
+.ov .omenubar > div { transition: opacity .22s ease; }
+.ov .ostage.mb-hide .omenubar > div { opacity: 0; }
+.ov .island-host { position: absolute; inset: 0; z-index: 3; }
+.ov .stack-host { position: absolute; inset: 0; z-index: 2; }
+.ov .stage-hint { position: absolute; left: 0; right: 0; bottom: 10px; text-align: center; z-index: 2; font: 500 11px/1.4 var(--font-sans); color: rgba(255,255,255,.4); pointer-events: none; padding: 0 16px; }
+.ov .ava { width: 26px; height: 26px; min-width: 26px; border-radius: 8px; display: grid; place-items: center; font-size: 13px; box-shadow: inset 0 0 0 1px rgba(255,255,255,.12); }
+.ov .ava.lg { width: 34px; height: 34px; min-width: 34px; border-radius: 10px; font-size: 16px; }
+.ov .cmp { display: flex; align-items: center; gap: 9px; width: 100%; padding: 0 max(11px, calc(var(--di-wall, 6px) + 4px)); }
+.ov .cmp-txt { display: flex; flex-direction: column; min-width: 0; flex: 1; line-height: 1.15; }
+.ov .cmp-txt b { font-size: 12px; font-weight: 640; letter-spacing: -.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ov .cmp-txt i { font-size: 10.5px; font-style: normal; color: rgba(255,255,255,.6); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ov .badge { height: 20px; border-radius: 999px; display: grid; place-items: center; font: 700 11px/1 var(--font-mono); color: #0a0a0a; background: var(--acc); box-shadow: 0 0 12px -2px var(--acc); flex: none; }
+.ov .cmp.idle { justify-content: center; }
+.ov .idle-dot { width: 7px; height: 7px; border-radius: 50%; background: rgba(255,255,255,.5); animation: idle-pulse 2.4s ease-in-out infinite; }
+@keyframes idle-pulse { 0%,100%{ opacity:.4; } 50%{ opacity:1; } }
+.ov .card2 { padding: 12px max(13px, calc(var(--di-wall, 19px) + 4px)) 11px; display: flex; flex-direction: column; gap: 9px; }
+.ov .card-hd { display: flex; align-items: center; gap: 10px; }
+.ov .card-meta { display: flex; flex-direction: column; flex: 1; min-width: 0; line-height: 1.2; }
+.ov .card-meta b { font-size: 13px; font-weight: 640; }
+.ov .tstamp { font: 500 10px/1 var(--font-mono); color: var(--ink-faint); }
+.ov .prio-chip { font: 700 9px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; padding: 4px 7px; border-radius: 6px; color: var(--acc); background: color-mix(in srgb,var(--acc) 16%,transparent); border: 1px solid color-mix(in srgb,var(--acc) 34%,transparent); }
+.ov .card-title2 { font-size: 14px; font-weight: 520; color: #eef0f4; padding: 1px 1px 2px; }
+.ov .card-ft { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.ov .nav { display: flex; align-items: center; gap: 4px; }
+.ov .idxlab { font: 600 11px/1 var(--font-mono); color: var(--ink-mid); min-width: 42px; text-align: center; }
+.ov .ic-btn { width: 26px; height: 26px; border-radius: 8px; border: 1px solid var(--line); background: rgba(255,255,255,.05); color: #dfe2e8; font-size: 14px; cursor: pointer; display: grid; place-items: center; line-height: 1; }
+.ov .ic-btn:hover { background: rgba(255,255,255,.1); border-color: var(--line-2); }
+.ov .act-btn { border: none; border-radius: 9px; padding: 8px 14px; cursor: pointer; font: 640 12px/1 var(--font-sans); color: #0a0a0a; background: var(--acc); box-shadow: 0 2px 12px -3px var(--acc); }
+.ov .act-btn.ghost { background: rgba(255,255,255,.08); color: #e6e8ee; box-shadow: none; }
+.ov .lst { padding: 10px max(8px, calc(var(--di-wall, 19px) + 2px)) 9px; }
+.ov .lst-hd { display: flex; align-items: center; justify-content: space-between; padding: 2px 8px 9px; }
+.ov .lst-hd .t { font-size: 12.5px; font-weight: 640; color: #eef0f4; }
+.ov .lst-hd .r { display: flex; align-items: center; gap: 8px; }
+.ov .lst-count { font: 700 10px/1 var(--font-mono); background: rgba(255,255,255,.1); padding: 3px 7px; border-radius: 999px; color: #cfd3db; }
+.ov .lst-body { max-height: 300px; overflow-y: auto; overscroll-behavior: contain; }
+/* when the list overflows the cap, fade the bottom edge so the partial last row
+   reads as an intentional scroll affordance, not a hard mid-row guillotine. */
+.ov .lst-body.scrolls { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 30px), transparent 100%); mask-image: linear-gradient(to bottom, #000 calc(100% - 30px), transparent 100%); }
+.ov .lst-spacer { height: 18px; flex: none; }
+.ov .lst-body::-webkit-scrollbar { width: 6px; }
+.ov .lst-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,.16); border-radius: 3px; }
+.ov .lrow { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 12px; animation: row-in .4s cubic-bezier(.22,1,.36,1) both; }
+.ov .lrow + .lrow { margin-top: 2px; }
+.ov .lrow:hover { background: rgba(255,255,255,.04); }
+@keyframes row-in { from{ opacity:0; transform:translateY(8px) scale(.98); } to{ opacity:1; transform:none; } }
+.ov .lrow .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--acc); flex: none; box-shadow: 0 0 8px -1px var(--acc); }
+.ov .row-txt { flex: 1; min-width: 0; line-height: 1.25; }
+.ov .row-txt b { display: block; font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ov .row-txt span { font-size: 10.5px; color: var(--ink-faint); }
+.ov .row-act { border: 1px solid color-mix(in srgb,var(--acc) 40%,transparent); background: color-mix(in srgb,var(--acc) 14%,transparent); color: var(--acc); font: 640 11px/1 var(--font-sans); padding: 6px 10px; border-radius: 8px; cursor: pointer; flex: none; }
+.ov .stack-card { position: absolute; left: 50%; top: 0; transform: translateX(-50%); border-radius: 16px; padding: 11px 13px; cursor: pointer; z-index: 2; background: linear-gradient(180deg,rgba(30,30,38,.72),rgba(18,18,24,.72)); border: 1px solid rgba(255,255,255,.14); -webkit-backdrop-filter: blur(16px) saturate(1.3); backdrop-filter: blur(16px) saturate(1.3); box-shadow: 0 10px 30px -12px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.08); display: flex; align-items: center; gap: 10px; animation: card-in .42s cubic-bezier(.34,1.4,.5,1) both; }
+@keyframes card-in { from{ opacity:0; transform:translateX(-50%) translateY(-16px) scale(.9); } to{ opacity:1; transform:translateX(-50%) translateY(0) scale(1); } }
+.ov .stack-card .sc-txt { flex: 1; min-width: 0; line-height: 1.2; }
+.ov .stack-card .sc-txt b { display: block; font-size: 12px; font-weight: 620; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #fff; }
+.ov .stack-card .sc-txt span { font-size: 10px; color: rgba(255,255,255,.6); }
+.ov .stack-card .sc-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--acc); flex: none; box-shadow: 0 0 8px -1px var(--acc); }
+.ov .crowd-warn { position: absolute; left: 12px; right: 12px; bottom: 8px; z-index: 200; background: rgba(40,11,10,.94); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); border: 1px solid rgba(255,59,48,.5); color: #ff9d96; border-radius: 10px; padding: 7px 10px; font: 600 11px/1.3 var(--font-sans); text-align: center; box-shadow: 0 6px 20px -6px rgba(0,0,0,.7); }
+.ov .ctl { display: flex; align-items: center; gap: 9px; padding: 14px 16px; border-top: 1px solid var(--line); }
+.ov .obtn { border: none; border-radius: 10px; padding: 9px 14px; cursor: pointer; font: 620 12.5px/1 var(--font-sans); display: inline-flex; align-items: center; gap: 7px; }
+.ov .obtn.send { color: #0a0a0a; background: linear-gradient(180deg,#7fbcff,#4a9eff); }
+.ov .model.b .obtn.send { background: linear-gradient(180deg,#66e39a,#2ed573); }
+.ov .model.c .obtn.send { background: linear-gradient(180deg,#ffc04d,#ffa502); }
+.ov .obtn.ghost { background: rgba(255,255,255,.06); color: #dfe2e8; border: 1px solid var(--line); }
+.ov .ctl .count { margin-left: auto; font: 600 12px/1 var(--font-mono); color: var(--ink-mid); }
+.ov .ctl .count b { color: var(--ink); font-size: 15px; }
+
+/* comparison table (shared) */
+.tbl-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); margin-top: 8px; }
+table.cmp-tbl { border-collapse: collapse; width: 100%; min-width: 760px; font-size: 13px; }
+table.cmp-tbl th, table.cmp-tbl td { text-align: left; padding: 13px 16px; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.cmp-tbl thead th { font: 600 11px/1.2 var(--font-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-faint); background: rgba(255,255,255,.02); }
+table.cmp-tbl tbody tr:last-child td { border-bottom: none; }
+table.cmp-tbl td .mname { font-weight: 640; color: var(--ink); display: flex; align-items: center; gap: 8px; }
+table.cmp-tbl td .mk { width: 18px; height: 18px; border-radius: 6px; display: grid; place-items: center; color: #fff; font: 700 10px/1 var(--font-mono); }
+.mk.a { background:#4a9eff; } .mk.b { background:#2ed573; } .mk.c { background:#ffa502; }
+table.cmp-tbl td.good { color:#7fe0a3; } table.cmp-tbl td.mid { color:#ffcf7a; } table.cmp-tbl td.bad { color:#ff9d96; }
+table.cmp-tbl code { font: 500 12px/1 var(--font-mono); color: #cdd4e0; }
+.rec-inline { color: #2ed573; font: 600 10px/1 var(--font-mono); border: 1px solid rgba(46,213,115,.3); background: rgba(46,213,115,.1); padding: 2px 6px; border-radius: 5px; margin-left: 6px; }
+table.cmp-tbl small { color: var(--ink-faint); font-size: 11.5px; }
+.foot-note { margin-top: 20px; color: var(--ink-faint); font-size: 12.5px; max-width: 860px; line-height: 1.6; }
+.foot-note b { color: var(--ink-mid); }
+
+/* ============================================================================
+   04 gallery / 05 platforms / 06 themes / 07 anatomy
+   ========================================================================== */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 26px; }
+.cell { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--panel); }
+.cell .demo { min-height: 176px; display: flex; align-items: flex-start; justify-content: center; position: relative; background: radial-gradient(100% 80% at 30% 0%, #33406e 0%, rgba(51,64,110,0) 60%), linear-gradient(160deg, #1a2136 0%, #0e1220 100%); }
+.cell .caption { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; border-top: 1px solid var(--line); }
+.cell .caption .name { font-size: 13px; font-weight: 600; }
+.cell .caption .desc { font-size: 11.5px; color: var(--ink-dim); }
+.cell .caption .tag { font-family: var(--font-mono); font-size: 10px; color: var(--ink-dim); border: 1px solid var(--line-2); border-radius: 5px; padding: 1px 6px; }
+
+.platforms { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.platforms .pcard { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.platforms .plabel-bar { padding: 9px 14px; font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 8px; background: var(--panel); }
+.platforms .plabel-bar .dot { width: 8px; height: 8px; border-radius: 50%; }
+.mini-stage { position: relative; height: 168px; overflow: hidden; background: radial-gradient(100% 80% at 50% -10%, #33406e 0%, rgba(51,64,110,0) 60%), linear-gradient(160deg, #1a2136 0%, #0e1220 100%); }
+.mini-stage .mbar { height: 24px; background: rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: space-between; padding: 0 10px; font-size: 10px; color: rgba(255,255,255,0.75); }
+.mini-stage .mbar.gnome { justify-content: center; }
+.mini-stage .mount { position: absolute; top: 0; left: 0; right: 0; z-index: 3; display: flex; justify-content: center; }
+.mini-stage.win .mount, .mini-stage.linux .mount { top: 10px; }
+@media (max-width: 720px){ .platforms { grid-template-columns: 1fr; } }
+
+.themes { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px,1fr)); gap: 22px; }
+.theme-cell { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--panel); }
+.theme-cell .tbar { padding: 9px 14px; font-size: 12.5px; font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
+.theme-cell .tbar .code { font-family: var(--font-mono); font-size: 10px; color: var(--ink-dim); }
+.theme-cell .tstage { min-height: 150px; display: flex; justify-content: center; position: relative; background: radial-gradient(100% 80% at 50% -10%, #2b3560 0%, rgba(43,53,96,0) 60%), linear-gradient(160deg,#171d30 0%, #0d1120 100%); }
+.t-brand { --accent:#4a9eff; }
+.t-terminal { --accent:#2ed573; }
+.t-claude { --accent:#d97757; }
+.t-danger { --accent:#ff3b30; }
+.t-light { --accent:#0a84ff; }
+.t-light .expanded-body { background:#f4f4f6; --ink:rgba(0,0,0,0.9); --ink-mid:rgba(0,0,0,0.6); --ink-dim:rgba(0,0,0,0.42); border-radius:0 0 22px 22px; }
+.theme-cell.tstage-light .tstage { background: radial-gradient(100% 80% at 50% -10%, #e6ecfa 0%, rgba(230,236,250,0) 60%), linear-gradient(160deg,#eef1f8 0%, #dfe4f0 100%); }
+
+.spec { display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 26px; align-items: start; }
+@media (max-width: 720px){ .spec { grid-template-columns: 1fr; } }
+.measure-stage { position: relative; border: 1px solid var(--line); border-radius: 14px; padding: 44px 20px 34px; background: #0f1219; display: flex; flex-direction: column; align-items: center; gap: 40px; min-height: 240px; }
+.measure-stage .anno { font-family: var(--font-mono); font-size: 11px; color: var(--accent-normal); text-align: center; margin-bottom: 10px; }
+.measure-stage .mrow { position: relative; display: flex; justify-content: center; }
+.spec table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.spec table th { text-align: left; color: var(--ink-dim); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.spec table td { padding: 9px 10px; border-bottom: 1px solid rgba(255,255,255,0.05); color: var(--ink-mid); vertical-align: top; }
+.spec table td b { color: var(--ink); font-weight: 600; }
+.spec table td code { font-family: var(--font-mono); font-size: 12px; color: var(--accent-normal); }
+.callout { margin-top: 22px; border: 1px solid color-mix(in srgb, var(--accent-high) 30%, transparent); background: color-mix(in srgb, var(--accent-high) 8%, transparent); border-radius: 14px; padding: 16px 18px; }
+.callout h4 { font-size: 14px; display: flex; align-items: center; gap: 8px; }
+.callout p { font-size: 13px; color: var(--ink-mid); margin-top: 8px; }
+.callout ul { margin: 8px 0 0 18px; font-size: 13px; color: var(--ink-mid); }
+.callout li { margin-top: 5px; }
+.callout code { font-family: var(--font-mono); font-size: 12px; background: rgba(255,255,255,0.06); padding: 1px 5px; border-radius: 4px; color: #ffd9a0; }
+.callout .warn { color: #ff9d96; }
+
+.foot { margin-top: 80px; padding-top: 24px; border-top: 1px solid var(--line); color: var(--ink-dim); font-size: 12.5px; font-family: var(--font-mono); }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ===================== MASTHEAD ===================== -->
+  <header class="masthead">
+    <div class="kicker">syncfu · design mockup · v2 · rev 8 · APPROVED 2026-07-20 · overflow: Model B</div>
+    <h1>Dynamic Island <span class="g">notification</span></h1>
+    <p>A pure-black capsule anchored to the top-center notch that spring-morphs into a full notification card.
+       One island engine drives every panel below: the concave-shoulder <code>notchPath</code> is drawn as an inline
+       SVG whose <code>d</code> is recomputed each animation frame from a damped-spring tween on width, height and the
+       two corner radii &ndash; the outer box is never resized on a timeline. Same content, actions, progress and 27
+       style overrides as today's glass card; a different <em>shape</em> and <em>anchor</em>. Visual spec for approval,
+       not production code.</p>
+    <div class="legend">
+      <span><b>Anchor:</b> top-center (hugs the macOS notch; floats on Windows/Linux)</span>
+      <span><span class="swatch" style="background:#000;border:1px solid #333"></span><b>Compact</b> = hardware-black</span>
+      <span><span class="swatch" style="background:var(--accent-normal)"></span>normal</span>
+      <span><span class="swatch" style="background:var(--accent-low)"></span>low</span>
+      <span><span class="swatch" style="background:var(--accent-high)"></span>high</span>
+      <span><span class="swatch" style="background:var(--accent-critical)"></span>critical</span>
+    </div>
+  </header>
+
+  <!-- ===================== 01 HERO ===================== -->
+  <section id="hero">
+    <div class="section-head"><span class="n">01</span><h2>Live morph</h2>
+      <p>Click through the lifecycle. This is the feel &ndash; spring, not linear.</p></div>
+    <div class="controls" id="controls">
+      <button data-scenario="idle" class="active">Idle pill</button>
+      <button data-scenario="incoming">Incoming</button>
+      <button data-scenario="decision">Decision (--wait)</button>
+      <button data-scenario="progress">Live progress</button>
+      <button data-scenario="collapse">Collapse</button>
+      <span class="sep"></span>
+      <button data-platform-btn="macos" class="active">macOS</button>
+      <button data-platform-btn="windows">Windows</button>
+      <button data-platform-btn="linux">Linux</button>
+    </div>
+    <div class="stage" id="stage">
+      <div class="menubar">
+        <div class="left"><span style="font-size:15px">&#63743;</span><b>syncfu</b><span>File</span><span>Edit</span><span>View</span></div>
+        <div class="right"><span>&#9683; agent</span><span>100%</span><span>Mon 9:41</span></div>
+      </div>
+      <div class="desktop-hint">&ndash; desktop &ndash;</div>
+      <div class="island-mount" id="heroHost"></div>
+    </div>
+  </section>
+
+  <!-- ===================== 02 PLAYGROUND ===================== -->
+  <section id="playground">
+    <div class="section-head"><span class="n">02</span><h2>Customization playground</h2>
+      <p>Every control writes live to the one engine and to the spec JSON.</p></div>
+    <div class="pg" id="pg">
+      <div class="grid2">
+        <div class="stage-col">
+          <div class="pgstage">
+            <div class="pmenubar">
+              <div><b style="font-weight:700"> syncfu</b> &nbsp; Session &nbsp; View</div>
+              <div class="mb-r"><span>100%</span><span>Mon 9:41</span></div>
+            </div>
+            <div id="island-host"></div>
+          </div>
+          <div class="stage-tools">
+            <div class="seg-demo" role="group" aria-label="Preview state">
+              <button id="demo-compact" class="on">Compact</button>
+              <button id="demo-expanded">Expanded</button>
+            </div>
+            <span class="stage-note">Toggle to preview the <code>morph</code>. Corner scaling &amp; expanded width show here.</span>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <div class="card-title"><span class="win"><i></i><i></i><i></i></span> syncfu settings &ndash; Island</div>
+            <p class="card-cap">Every control writes live to the island and the <b>spec JSON</b> below, which the implementor persists (macOS <code>Defaults</code> / Tauri store). Nothing here is per-notification.</p>
+          </div>
+          <div class="group"><div class="group-label">Geometry</div>
+            <div class="row2 col"><div style="display:flex;justify-content:space-between;align-items:baseline"><span class="row-label">Compact width</span><span class="val" id="v-w">218 px</span></div><div class="slider-wrap"><input type="range" id="s-w" min="150" max="600" step="1" value="218"></div></div>
+            <div class="row2 col"><div style="display:flex;justify-content:space-between;align-items:baseline"><span class="row-label">Expanded width</span><span class="val" id="v-expw">380 px</span></div><div class="slider-wrap"><input type="range" id="s-expw" min="320" max="560" step="1" value="380"></div></div>
+            <div class="row2 col"><div style="display:flex;justify-content:space-between;align-items:baseline"><span class="row-label">Height</span><span class="val" id="v-h">34 px</span></div><div class="slider-wrap"><input type="range" id="s-h" min="24" max="60" step="1" value="34"></div></div>
+          </div>
+          <div class="group"><div class="group-label">Surface</div>
+            <div class="row2 col"><div style="display:flex;justify-content:space-between;align-items:baseline"><span class="row-label">Transparency<span class="sub">Alpha of the pill <b style="color:var(--text-dim)">fill only</b> &ndash; sender, timers and text stay opaque.</span></span><span class="val" id="v-op">94%</span></div><div class="slider-wrap"><input type="range" id="s-op" min="0" max="100" step="1" value="94"></div></div>
+            <div class="row2"><span class="row-label">Appearance<span class="sub">Light re-skins the expanded card &amp; float pills only. In notch mode the compact pill stays pure black so it blends with the physical notch &ndash; same as iOS, which keeps the Dynamic Island black in light mode. Auto follows the OS.</span></span><div class="row-ctl"><div class="seg" id="seg-appear" role="group"><button data-appear="dark" class="on">Dark</button><button data-appear="light">Light</button><button data-appear="auto">Auto</button></div></div></div>
+          </div>
+          <div class="group"><div class="group-label">Corners</div>
+            <div class="row2 col"><div style="display:flex;justify-content:space-between;align-items:baseline"><span class="row-label">Shoulder / top radius</span><span class="val" id="v-top">6 px</span></div><div class="slider-wrap"><input type="range" id="s-top" min="0" max="24" step="1" value="6"></div></div>
+            <div class="row2 col"><div style="display:flex;justify-content:space-between;align-items:baseline"><span class="row-label">Bottom radius</span><span class="val" id="v-bot">14 px</span></div><div class="slider-wrap"><input type="range" id="s-bot" min="0" max="40" step="1" value="14"></div></div>
+            <div class="row2"><span class="row-label">Grow radii on expand<span class="sub">6 / 14 &rarr; 19 / 24 when the pill opens.</span></span><div class="row-ctl"><label class="sw"><input type="checkbox" id="t-scale" checked><span class="track"></span><span class="knob"></span></label></div></div>
+          </div>
+          <div class="group"><div class="group-label">Accent</div>
+            <div class="row2 col"><div class="swatch-lab"><span class="row-label">Preset</span></div><div class="swatches" id="swatches"></div><div class="prio-note">First four map to notification priority &ndash; <b>low</b> 6s · <b>normal</b> 8s · <b>high</b> 12s · <b>critical</b> never auto-dismisses. Accent tints indicators only; the body stays black.</div></div>
+            <div class="row2"><span class="row-label">Custom</span><div class="row-ctl swatch-custom"><input type="text" class="hexval" id="hex-val" value="#4A9EFF" maxlength="7" spellcheck="false"><input type="color" id="accent-color" value="#4a9eff" aria-label="Custom accent color"></div></div>
+          </div>
+          <div class="group"><div class="group-label">Placement</div>
+            <div class="row2"><span class="row-label">Mode<span class="sub">Concave shoulders are macOS-only.</span></span><div class="row-ctl"><div class="seg" id="seg-mode" role="group"><button data-mode="notch" class="on">Notch · macOS</button><button data-mode="float">Float · Win/Linux</button></div></div></div>
+            <div class="row2"><span class="row-label">Position<span class="sub">Float mode only. Bottom center expands upward.</span></span><div class="row-ctl"><div class="seg plain" id="seg-pos" role="group"><button data-pos="left" disabled>Left</button><button data-pos="center" class="on" disabled>Center</button><button data-pos="right" disabled>Right</button><button data-pos="bottom-center" disabled>Bottom center</button></div></div></div>
+          </div>
+          <div class="group"><div class="group-label">Behavior</div>
+            <div class="row2"><span class="row-label">Reduced motion<span class="sub">Near-instant spring (1000 / 100).</span></span><div class="row-ctl"><label class="sw"><input type="checkbox" id="t-reduced"><span class="track"></span><span class="knob"></span></label></div></div>
+            <div class="row2"><span class="row-label">Hide from screen sharing</span><div class="row-ctl"><label class="sw"><input type="checkbox" id="t-hide" checked><span class="track"></span><span class="knob"></span></label></div></div>
+            <div class="locknote"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg><span>Native shell only &ndash; Tauri <code>set_content_protected(true)</code> (macOS <code>NSWindowSharingNone</code> / Windows <code>WDA_EXCLUDEFROMCAPTURE</code>). No-ops in the browser mockup.</span></div>
+          </div>
+          <div class="group"><div class="presets-label">Presets</div><div class="btnrow"><button class="pbtn" data-preset="apple">Apple default</button><button class="pbtn" data-preset="slim">Slim bar</button><button class="pbtn" data-preset="big">Big status</button><button class="pbtn reset" id="btn-reset">Reset to defaults</button></div></div>
+          <div class="json-wrap"><div class="json-head"><span class="lab">island.settings.json</span><button class="copy" id="btn-copy">Copy</button></div><pre class="json" id="json-out"></pre></div>
+        </div>
+      </div>
+      <div style="margin-top:14px"><button class="theme-btn" id="pg-theme-toggle">&#9680; Toggle panel theme</button></div>
+    </div>
+  </section>
+
+  <!-- ===================== 03 OVERFLOW ===================== -->
+  <section id="overflow">
+    <div class="section-head"><span class="n">03</span><h2>Many notifications, three ways</h2>
+      <p>When N arrive at once. Send events to push each model to N = 1 &hellip; 9+.</p></div>
+    <div class="ov">
+      <div class="stages">
+        <div class="model a" id="modelA">
+          <div class="model-hd"><div class="model-tag"><span class="k">A</span> Badge + cycle</div><h3>Spotlight + count, cycle the queue</h3>
+            <p>Compact shows the highest-priority item and a <code>&times;N</code> badge. Click to expand; arrows or swipe cycle it. Critical jumps the line; dismissed cards absorb upward.</p></div>
+          <div class="ostage" id="stageA"><div class="omenubar"><div class="mb-l"><b>syncfu</b><span>Sessions</span></div><div class="mb-r"><span>9:41</span></div></div><div class="island-host"></div><div class="stage-hint">click the island to expand · &lsaquo; &rsaquo; or swipe to cycle</div></div>
+          <div class="ctl"><button class="obtn send" data-model="A">Send notification</button><button class="obtn ghost" data-reset="A">Clear</button><span class="count">N&nbsp;<b data-n="A">0</b></span></div>
+        </div>
+        <div class="model b" id="modelB">
+          <div class="model-hd"><div class="model-tag"><span class="k">B</span> Expandable ranked list <span class="rec">SELECTED &middot; approved 2026-07-20</span></div><h3>Spotlight &rarr; ranked, deduped list</h3>
+            <p>The cross-app consensus. Compact = spotlight + <code>&times;N</code>. Expanding reveals a priority-ranked, deduped list capped at 6 rows / 560px, then scrolls inside the island. Rows stagger in.</p></div>
+          <div class="ostage" id="stageB"><div class="omenubar"><div class="mb-l"><b>syncfu</b><span>Sessions</span></div><div class="mb-r"><span>9:41</span></div></div><div class="island-host"></div><div class="stage-hint">click the island to open the ranked list</div></div>
+          <div class="ctl"><button class="obtn send" data-model="B">Send notification</button><button class="obtn ghost" data-reset="B">Clear</button><span class="count">N&nbsp;<b data-n="B">0</b></span></div>
+        </div>
+        <div class="model c" id="modelC">
+          <div class="model-hd"><div class="model-tag"><span class="k">C</span> Stack under island</div><h3>Cards stack beneath the pill</h3>
+            <p>The first notification <em>is</em> the island; each new one drops in as a smaller glass card. Honest drawback: no mature app ships this &ndash; by <code>N = 5</code> the cards crowd the screen.</p></div>
+          <div class="ostage" id="stageC"><div class="omenubar"><div class="mb-l"><b>syncfu</b><span>Sessions</span></div><div class="mb-r"><span>9:41</span></div></div><div class="island-host"></div><div class="stack-host"></div><div class="stage-hint">click a card to dismiss it upward</div></div>
+          <div class="ctl"><button class="obtn send" data-model="C">Send notification</button><button class="obtn ghost" data-reset="C">Clear</button><span class="count">N&nbsp;<b data-n="C">0</b></span></div>
+        </div>
+      </div>
+      <div style="margin-top:40px"><h3 style="font-size:20px;font-weight:640;letter-spacing:-.01em">How the three trade off</h3>
+        <p style="color:var(--ink-mid);font-size:13px;margin:4px 0 4px">Same payload of N notifications, judged on the axes that matter for an always-on overlay.</p>
+        <div class="tbl-wrap"><table class="cmp-tbl"><thead><tr><th>Model</th><th>Space use</th><th>Glanceability</th><th>Practical max N</th><th>Interaction cost</th><th>Used by</th></tr></thead>
+          <tbody>
+            <tr><td><span class="mname"><span class="mk a">A</span>Badge + cycle</span></td><td class="good">Constant &ndash; one pill, always</td><td class="mid">One item at a glance; rest hidden</td><td class="good">&infin; (badge caps <code>9+</code>)</td><td class="bad">High &ndash; click + cycle N&minus;1 to read all</td><td>open-island, open-vibe <small>(closed spotlight)</small></td></tr>
+            <tr><td><span class="mname"><span class="mk b">B</span>Ranked list<span class="rec-inline">rec</span></span></td><td class="mid">Compact closed; ~360px tall open</td><td class="good">All items ranked in one open glance</td><td class="good">&infin; (6 rows then scroll)</td><td class="good">Low &ndash; one click reveals everything</td><td>Pillar <small>(open state)</small>, open-island list</td></tr>
+            <tr><td><span class="mname"><span class="mk c">C</span>Stack under</span></td><td class="bad">Grows with N &ndash; eats the screen</td><td class="good">All visible&hellip; until they collide</td><td class="bad">~4 before crowding</td><td class="mid">Low to read, but occludes desktop</td><td class="bad">None <small>(anti-pattern)</small></td></tr>
+          </tbody></table></div>
+        <p class="foot-note"><b>Verdict:</b> Model B is the research consensus &ndash; both island apps and Pillar's open state converge on <b>one spotlight + count &rarr; ranked, deduped, capped-then-scroll list</b>. Model A is a valid fallback where vertical space is scarce. Model C is an honest counter-example: stacking toasts is the one thing <b>no mature app does</b>. Priority timeouts (low 6s / normal 8s / high 12s / critical never) and the absorb-upward dismiss (<code style="font-family:var(--font-mono)">y:-40, scale:.4</code>, spring 300/25) are shared across all three.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== 04 STATE GALLERY ===================== -->
+  <section id="states">
+    <div class="section-head"><span class="n">04</span><h2>State gallery</h2>
+      <p>Every state Playwright snapshots, drawn with the new SVG notch shape.</p></div>
+    <div class="grid" id="stateGrid"></div>
+  </section>
+
+  <!-- ===================== 05 CROSS-PLATFORM ===================== -->
+  <section id="platforms">
+    <div class="section-head"><span class="n">05</span><h2>Cross-platform anchoring</h2>
+      <p>Concave notch on macOS. A floating convex capsule elsewhere.</p></div>
+    <div class="platforms">
+      <div class="pcard"><div class="plabel-bar"><span class="dot" style="background:#4a9eff"></span>macOS · hugs the notch</div>
+        <div class="mini-stage mac"><div class="mbar"><span>&#63743; syncfu</span><span>9:41</span></div><div class="mount" data-plat="mac"></div></div></div>
+      <div class="pcard"><div class="plabel-bar"><span class="dot" style="background:#2ed573"></span>Windows 11 · floats</div>
+        <div class="mini-stage win"><div class="mount" data-plat="win"></div></div></div>
+      <div class="pcard"><div class="plabel-bar"><span class="dot" style="background:#ffa502"></span>Linux (GNOME) · floats</div>
+        <div class="mini-stage linux"><div class="mbar gnome"><span>Activities&nbsp;&nbsp;·&nbsp;&nbsp;9:41&nbsp;&nbsp;·&nbsp;&nbsp;&#9681;</span></div><div class="mount" data-plat="linux"></div></div></div>
+    </div>
+    <p style="color:var(--ink-dim);font-size:12.5px;margin-top:14px;font-family:var(--font-mono)">Note: the physical notch exists only on macOS. On Windows/Linux the compact pill IS the island &ndash; a rounded floating capsule pinned top-center, so the metaphor survives without hardware.</p>
+  </section>
+
+  <!-- ===================== 06 THEME GALLERY ===================== -->
+  <section id="themes">
+    <div class="section-head"><span class="n">06</span><h2>Customization &ndash; same 27 overrides</h2>
+      <p>The island reads the existing per-notification <code>style</code> map. Same knobs, new shape.</p></div>
+    <div class="themes" id="themeGrid"></div>
+  </section>
+
+  <!-- ===================== 07 ANATOMY ===================== -->
+  <section id="spec">
+    <div class="section-head"><span class="n">07</span><h2>Anatomy &amp; measurements</h2>
+      <p>The numbers implementation will pin to.</p></div>
+    <div class="spec">
+      <div class="measure-stage">
+        <div><div class="anno">compact · 218 &times; 34 · top 6 / bottom 14</div><div class="mrow" id="anaCompact"></div></div>
+        <div><div class="anno">expanded · 380 &times; auto · top 19 / bottom 24</div><div class="mrow" id="anaExpanded"></div></div>
+      </div>
+      <div>
+        <table>
+          <thead><tr><th>Property</th><th>Value</th></tr></thead>
+          <tbody>
+            <tr><td><b>Anchor</b></td><td>top-center; macOS hugs notch (top edge flush), else floats 10&ndash;12px down. Float mode also offers <b>bottom-center</b> &ndash; anchored ~12px above the bottom edge, expanding upward like a volume OSD</td></tr>
+            <tr><td><b>Compact size</b></td><td><code>218 &times; 34</code> px (&asymp; notch); content-derived width, badge grows it</td></tr>
+            <tr><td><b>Expanded width</b></td><td><code>380</code> px · height auto-fits, capped <code>560</code></td></tr>
+            <tr><td><b>Corner radii</b></td><td>compact <code>6 / 14</code> &rarr; expanded <code>19 / 24</code> (top / bottom)</td></tr>
+            <tr><td><b>Radius clamps</b></td><td><code>topR = min(t, W/4, H/4)</code> · <code>botR = min(b, W/4, H/2)</code></td></tr>
+            <tr><td><b>Container spring</b></td><td><code>stiffness 220 / damping 25</code> (= SwiftUI response 0.42 / damping 0.8)</td></tr>
+            <tr><td><b>Content spring</b></td><td><code>400 / 30</code> crossfade · <b>Pop</b> <code>260 / 18</code> (visible overshoot)</td></tr>
+            <tr><td><b>Reduced motion</b></td><td>near-instant spring <code>1000 / 100</code></td></tr>
+            <tr><td><b>Hover</b></td><td>scale <code>1.028</code>, top-anchored, <code>150ms</code> open delay</td></tr>
+            <tr><td><b>Badge width</b></td><td><code>26 + 8&middot;(digits&minus;1)</code> px · caps visually at <code>9+</code></td></tr>
+            <tr><td><b>List cap</b></td><td><code>6 rows / 560px</code> then scrolls inside the island</td></tr>
+            <tr><td><b>Surface</b></td><td>compact <code>#000</code> · expanded <code>#0d0d0f</code> · alpha on fill only (default 0.94)</td></tr>
+            <tr><td><b>Type</b></td><td>SF Pro (UI) · SF Mono (sender, timers, %, ids)</td></tr>
+            <tr><td><b>Overrides</b></td><td>reuses all 27 <code>--s-*</code> style props from the payload</td></tr>
+          </tbody>
+        </table>
+        <div class="callout">
+          <h4>&#128274; Hidden during screen sharing</h4>
+          <p>The island window is excluded from capture at the OS level &ndash; never painted into a recording or share. This is one window property per platform:</p>
+          <ul>
+            <li><b>macOS:</b> <code>NSWindow.sharingType = .none</code> &ndash; NotchPrompter <code>PrompterWindow.swift &rarr; updateScreenRecordingVisibility()</code>, wired via Combine, <b>default ON</b>.</li>
+            <li><b>Windows:</b> <code>SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE)</code> (Win10 2004+).</li>
+            <li><b>Cross-platform:</b> Tauri v2 <code>window.set_content_protected(true)</code> maps to both of the above.</li>
+            <li><b>Linux:</b> no reliable equivalent &ndash; documented limitation (fallback: auto-hide while a capture app is frontmost).</li>
+          </ul>
+          <p class="warn">&#9888; open-island and open-vibe set <code>sharingType = .readOnly</code>, leaving their overlays <b>capturable</b> in screen shares. That is a mistake syncfu must not copy &ndash; default to hidden.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="foot">tasks/dynamic-island-mockup.html · v2 agent-built · not production · one engine, one token block, zero duplicated spring/path code · awaiting design approval</div>
+</div>
+
+<script>
+"use strict";
+/* ============================================================================
+   THE ISLAND ENGINE  (one copy; no libraries, no network)
+   ========================================================================== */
+const SVGNS = "http://www.w3.org/2000/svg";
+
+/* ---- notchPath({W,H,t,b}) -> SVG path d --------------------------------------
+   Concave top shoulders (control point AT the outer top corner, on the top edge);
+   convex bottom rounds. Verbatim geometry from boring.notch / DynamicNotchKit. */
+function notchPath({ W, H, t, b }) {
+  t = Math.min(t, W / 4, H / 4); t = Math.max(0, t);
+  b = Math.min(b, W / 4, H / 2); b = Math.max(0, b);
+  const n = (v) => Math.round(v * 100) / 100;
+  return `M 0 0`
+    + ` Q ${n(t)} 0 ${n(t)} ${n(t)}`
+    + ` L ${n(t)} ${n(H - b)}`
+    + ` Q ${n(t)} ${n(H)} ${n(t + b)} ${n(H)}`
+    + ` L ${n(W - t - b)} ${n(H)}`
+    + ` Q ${n(W - t)} ${n(H)} ${n(W - t)} ${n(H - b)}`
+    + ` L ${n(W - t)} ${n(t)}`
+    + ` Q ${n(W - t)} 0 ${n(W)} 0`
+    + ` Z`;
+}
+
+/* ---- capsulePath(W,H,r): convex rounded-rect for float mode (Win/Linux) ----
+   Same idea, but every corner rounds OUTWARD (no concave shoulders). */
+function capsulePath(W, H, r) {
+  r = Math.min(r == null ? H / 2 : r, H / 2, W / 2);
+  const n = (v) => Math.round(v * 100) / 100;
+  return `M ${n(r)} 0`
+    + ` L ${n(W - r)} 0 Q ${n(W)} 0 ${n(W)} ${n(r)}`
+    + ` L ${n(W)} ${n(H - r)} Q ${n(W)} ${n(H)} ${n(W - r)} ${n(H)}`
+    + ` L ${n(r)} ${n(H)} Q 0 ${n(H)} 0 ${n(H - r)}`
+    + ` L 0 ${n(r)} Q 0 0 ${n(r)} 0 Z`;
+}
+
+/* ---- Spring: rAF-driven damped-spring integrator (semi-implicit Euler) ---- */
+class Spring {
+  constructor(value, cfg) { this.x = value; this.target = value; this.v = 0; this.setConfig(cfg); this.eps = 0.02; }
+  setConfig(cfg) { this.k = cfg.stiffness; this.c = cfg.damping; this.m = 1; return this; }
+  to(t) { if (t != null) this.target = t; return this; }
+  set(v) { this.x = v; this.target = v; this.v = 0; return this; }
+  get resting() { return Math.abs(this.x - this.target) < this.eps && Math.abs(this.v) < this.eps; }
+  step(dt) {
+    if (this.resting) { this.x = this.target; this.v = 0; return this.x; }
+    const steps = Math.max(1, Math.ceil(dt / (1 / 240)));
+    const h = dt / steps;
+    for (let i = 0; i < steps; i++) {
+      const a = (-this.k * (this.x - this.target) - this.c * this.v) / this.m;
+      this.v += a * h; this.x += this.v * h;
+    }
+    if (this.resting) { this.x = this.target; this.v = 0; }
+    return this.x;
+  }
+}
+
+const SPRING = {
+  CONTAINER: { stiffness: 220, damping: 25 },
+  CONTENT:   { stiffness: 400, damping: 30 },
+  POP:       { stiffness: 260, damping: 18 },
+  REDUCED:   { stiffness: 1000, damping: 100 }
+};
+function prefersReducedMotion() { return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches; }
+
+/* ---- createIsland(hostEl, config) -> controller --------------------------- */
+function createIsland(host, config = {}) {
+  const cfg = Object.assign({
+    w: 218, h: 34, expW: 380, expH: "auto",
+    topR: 6, botR: 14, expTopR: 19, expBotR: 24,
+    opacity: 0.94, accent: "#4a9eff", mode: "notch", cornerScaling: true,
+    maxExpH: 560, reduced: false, appearance: "dark"
+  }, config);
+
+  const reduced = () => cfg.reduced || prefersReducedMotion();
+  const isLight = () => cfg.appearance === "light"
+    || (cfg.appearance === "auto" && window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches);
+  const cc = () => reduced() ? SPRING.REDUCED : SPRING.CONTAINER;
+  const pc = () => reduced() ? SPRING.REDUCED : SPRING.POP;
+
+  const island = document.createElement("div"); island.className = "di-island";
+  island.style.setProperty("--di-accent", cfg.accent);
+  const pop = document.createElement("div"); pop.className = "di-pop";
+  const svg = document.createElementNS(SVGNS, "svg");
+  svg.setAttribute("class", "di-shape"); svg.setAttribute("preserveAspectRatio", "none");
+  const path = document.createElementNS(SVGNS, "path"); svg.appendChild(path);
+  const content = document.createElement("div"); content.className = "di-content";
+  pop.appendChild(svg); pop.appendChild(content); island.appendChild(pop); host.appendChild(island);
+
+  let compactW = cfg.w, expanded = false, curLayer = null, raf = null, last = 0;
+  const sW = new Spring(cfg.w, cc()), sH = new Spring(cfg.h, cc()),
+        sT = new Spring(cfg.topR, cc()), sB = new Spring(cfg.botR, cc());
+  const sPop = new Spring(1, pc()), sPopW = new Spring(0, pc());
+  /* responsive clamp: the island never grows wider than its stage */
+  const stageEl = host.offsetParent || host.parentElement;
+  const maxW = () => Math.max(150, (stageEl ? stageEl.clientWidth : Infinity) - 16);
+
+  function applyFill() {
+    /* Light appearance flips the EXPANDED card + FLOAT compact pill to a light
+       frosted surface. The notch COMPACT pill stays pure black in every mode so
+       it blends with the physical notch (matches real iOS Dynamic Island). */
+    const lightSurface = isLight() && (expanded || cfg.mode === "float");
+    const rgb = lightSurface ? (expanded ? "244,244,246" : "233,233,238")
+                             : (expanded ? "13,13,15" : "0,0,0");
+    path.setAttribute("fill", `rgba(${rgb},${cfg.opacity})`);
+    island.classList.toggle("di-light-content", lightSurface);
+  }
+  function setTargets() {
+    [sW, sH, sT, sB].forEach(s => s.setConfig(cc()));
+    if (expanded) {
+      const w = Math.min(cfg.expW, maxW());
+      sW.to(w);
+      /* keep the content layer in lockstep with the (clamped) card width - a
+         stale inner width leaves content narrower than the shape */
+      if (curLayer && curLayer.firstElementChild) {
+        curLayer.firstElementChild.style.width = w + "px";
+        requestAnimationFrame(measure);
+      }
+      sT.to(cfg.cornerScaling ? cfg.expTopR : cfg.topR);
+      sB.to(cfg.cornerScaling ? cfg.expBotR : cfg.botR);
+      /* sH target from measure() */
+    } else {
+      sW.to(Math.min(compactW, maxW())); sH.to(cfg.h); sT.to(cfg.topR); sB.to(cfg.botR);
+    }
+  }
+  function measure() {
+    if (!expanded || !curLayer) return;
+    const inner = curLayer.firstElementChild;
+    if (!inner) return;
+    sH.to(Math.min(Math.max(inner.offsetHeight, cfg.h), cfg.maxExpH));
+    kick();
+  }
+  function frame(ts) {
+    const dt = last ? Math.min((ts - last) / 1000, 0.05) : 1 / 60;
+    last = ts;
+    let W = sW.step(dt) + sPopW.step(dt);
+    let H = sH.step(dt);
+    let t = sT.step(dt), b = sB.step(dt);
+    island.style.width = W + "px"; island.style.height = H + "px";
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    path.setAttribute("d", cfg.mode === "float" ? capsulePath(W, H, expanded ? 24 : H / 2) : notchPath({ W, H, t, b }));
+    /* publish the live wall inset: notch walls sit t inside the box, float uses
+       its corner radius. Content padding derives from this so text/icons can
+       never reach the walls or corner curves in any state or browser. */
+    island.style.setProperty("--di-wall", (cfg.mode === "float" ? (expanded ? 24 : H / 2) : t).toFixed(1) + "px");
+    pop.style.setProperty("--di-pop", sPop.step(dt).toFixed(4));
+    if (sW.resting && sH.resting && sT.resting && sB.resting && sPop.resting && sPopW.resting) {
+      raf = null; last = 0; return;
+    }
+    raf = requestAnimationFrame(frame);
+  }
+  function kick() { if (!raf) { last = 0; raf = requestAnimationFrame(frame); } }
+
+  function reveal(html, name) {
+    const dur = reduced() ? 1 : 340;
+    const easing = "cubic-bezier(0.22,1,0.36,1)";
+    const next = document.createElement("div"); next.className = "di-layer";
+    const inner = document.createElement("div");
+    inner.className = "di-inner " + (name === "expanded" ? "exp" : "cmp-wrap");
+    if (name === "expanded") inner.style.width = Math.min(cfg.expW, maxW()) + "px";
+    inner.innerHTML = html; next.appendChild(inner); content.appendChild(next);
+    const prev = curLayer; curLayer = next;
+    next.animate(
+      [{ opacity: 0, transform: "scale(0.9)", filter: "blur(6px)" },
+       { opacity: 1, transform: "scale(1)", filter: "blur(0px)" }],
+      { duration: dur, easing, delay: reduced() ? 0 : (prev ? 60 : 0), fill: "both" });
+    if (prev) {
+      const a = prev.animate(
+        [{ opacity: 1, transform: "scale(1)", filter: "blur(0px)" },
+         { opacity: 0, transform: "scale(0.9)", filter: "blur(10px)" }],
+        { duration: dur, easing, fill: "both" });
+      a.onfinish = () => prev.remove();
+    }
+  }
+
+  function popFx() {
+    sPop.setConfig(pc()).set(1).to(1.04);
+    sPopW.setConfig(pc()).set(0).to(18);
+    kick();
+    setTimeout(() => { sPop.to(1); sPopW.to(0); kick(); }, reduced() ? 0 : 170);
+  }
+
+  const controller = {
+    el: island,
+    get state() { return expanded ? "expanded" : "compact"; },
+    get expanded() { return expanded; },
+    setState(name, html = "") {
+      expanded = (name === "expanded");
+      applyFill();
+      if (html) reveal(html, name);
+      setTargets();
+      if (expanded) requestAnimationFrame(measure);
+      kick();
+      return controller;
+    },
+    set(opts = {}) {
+      if ("w" in opts) compactW = opts.w;
+      if ("expW" in opts) cfg.expW = opts.expW;
+      if ("h" in opts) cfg.h = opts.h;
+      if ("topR" in opts) cfg.topR = opts.topR;
+      if ("botR" in opts) cfg.botR = opts.botR;
+      if ("opacity" in opts) { cfg.opacity = opts.opacity; applyFill(); }
+      if ("accent" in opts) { cfg.accent = opts.accent; island.style.setProperty("--di-accent", cfg.accent); }
+      if ("cornerScaling" in opts) cfg.cornerScaling = opts.cornerScaling;
+      if ("reduced" in opts) cfg.reduced = opts.reduced;
+      if ("appearance" in opts) { cfg.appearance = opts.appearance; applyFill(); }
+      if ("mode" in opts) { cfg.mode = opts.mode; applyFill(); }
+      if (opts.pop) popFx();
+      setTargets(); kick();
+      return controller;
+    },
+    remeasure: measure,
+    pop: popFx
+  };
+  /* re-clamp live when the stage resizes (viewport / column changes) */
+  if (typeof ResizeObserver !== "undefined" && stageEl) {
+    new ResizeObserver(() => { setTargets(); if (expanded) measure(); kick(); }).observe(stageEl);
+  }
+  applyFill(); kick();
+  return controller;
+}
+
+/* ---- mountStatic(host, opts): static screenshot island, reuses notchPath ---- */
+function mountStatic(host, { w, expanded, accent, html, opacity = 0.94, mode = "notch", h, topR, botR, light = false }) {
+  /* clamp static islands to their host cell so narrow layouts never overflow */
+  if (host.clientWidth) w = Math.min(w, host.clientWidth - 8);
+  const el = document.createElement("div");
+  el.className = "di-island stat" + (mode === "float" ? " float" : "") + (light ? " di-light-content" : "");
+  el.style.width = w + "px"; el.style.setProperty("--di-accent", accent || "#4a9eff");
+  const pop = document.createElement("div"); pop.className = "di-pop";
+  const svg = document.createElementNS(SVGNS, "svg");
+  svg.setAttribute("class", "di-shape"); svg.setAttribute("preserveAspectRatio", "none");
+  const path = document.createElementNS(SVGNS, "path"); svg.appendChild(path);
+  const content = document.createElement("div"); content.className = "di-content";
+  const inner = document.createElement("div");
+  inner.className = "di-inner " + (expanded ? "exp" : "cmp-wrap");
+  inner.innerHTML = html; content.appendChild(inner);
+  pop.appendChild(svg); pop.appendChild(content); el.appendChild(pop); host.appendChild(el);
+  const H = h || Math.max(inner.offsetHeight, expanded ? 60 : 34);
+  el.style.height = H + "px";
+  let t = topR != null ? topR : (expanded ? 19 : 6), b = botR != null ? botR : (expanded ? 24 : 14);
+  svg.setAttribute("viewBox", `0 0 ${w} ${H}`);
+  path.setAttribute("d", mode === "float" ? capsulePath(w, H, expanded ? 22 : H / 2) : notchPath({ W: w, H, t, b }));
+  el.style.setProperty("--di-wall", (mode === "float" ? (expanded ? 22 : H / 2) : t).toFixed(1) + "px");
+  const lightRGB = expanded ? "244,244,246" : (mode === "float" ? "233,233,238" : "0,0,0");
+  path.setAttribute("fill", light ? `rgba(${lightRGB},${opacity})` : (expanded ? `rgba(13,13,15,${opacity})` : `rgba(0,0,0,${opacity})`));
+  return el;
+}
+
+/* ============================================================================
+   SHARED CONTENT HELPERS (preset A: mockup card – hero/gallery/platforms/themes)
+   ========================================================================== */
+const I = {
+  check:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+  pr:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M6 9v6"/><circle cx="18" cy="18" r="3"/><path d="M18 15V9a3 3 0 0 0-3-3h-3"/><path d="M12 9l3-3-3-3"/></svg>',
+  alert:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.7 18-9-16a1.5 1.5 0 0 0-2.6 0l-9 16A1.5 1.5 0 0 0 2.3 20h19.4a1.5 1.5 0 0 0 1.3-2Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>',
+  bot:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="12" x="3" y="8" rx="2"/><path d="M12 4v4M8 2v2M16 2v2"/><circle cx="8.5" cy="14" r="1"/><circle cx="15.5" cy="14" r="1"/></svg>',
+  rocket: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 16.5c-1.5 1.3-2 5-2 5s3.7-.5 5-2c.7-.8.7-2 0-2.8a2 2 0 0 0-3 0Z"/><path d="M12 15 9 12a11 11 0 0 1 8-9 11 11 0 0 1-1 8l-4 4Z"/><path d="M9 12H4s.5-3 2-4c1.5-1 5 0 5 0"/></svg>',
+  clock:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>'
+};
+function ringSVG(cls, pct, r) {
+  const c = 2 * Math.PI * r, o = c * (1 - pct);
+  return `<svg class="${cls}" viewBox="0 0 24 24"><circle class="track" cx="12" cy="12" r="${r}"/><circle class="fill" cx="12" cy="12" r="${r}" stroke-dasharray="${c.toFixed(1)}" stroke-dashoffset="${o.toFixed(1)}"/></svg>`;
+}
+function compactBody(o) {
+  return `<div class="compact-body"${o.accent ? ` style="--accent:var(--accent-${o.accent})"` : ""}>`
+    + `<div class="lead"><span class="glyph">${I[o.glyph] || o.glyph || ""}</span><span class="clabel">${o.label}</span></div>`
+    + `<div class="trail">${o.trail || ""}</div></div>`;
+}
+function expandedBody(o) {
+  const { icon = "check", sender = "syncfu", title, body, time = "now", actions, progress, ring, countdown, accent } = o;
+  const accStyle = accent ? ` style="--accent:var(--accent-${accent})"` : "";
+  let html = `<div class="expanded-body ebstatic"${accStyle}>`;
+  html += `<div class="erow"><div class="ex-icon">${I[icon] || I.check}</div><div class="ex-text">`
+    + `<div class="ex-head"><span class="ex-sender">${sender}</span><span class="ex-time">${time}</span></div>`
+    + `<div class="ex-title">${title}</div>`
+    + (body ? `<div class="ex-body">${body}</div>` : "")
+    + `</div></div>`;
+  if (progress != null) html += `<div class="ex-progress"><div class="pbar"><i style="width:${Math.round(progress * 100)}%"></i></div>`
+    + `<div class="plabel"><span>${o.plabel || "working"}</span><span>${Math.round(progress * 100)}%</span></div></div>`;
+  if (ring != null) html += `<div class="ring-wrap">${ringSVG("big-ring", ring, 10)}<div><div class="big-ring-pct">${Math.round(ring * 100)}%</div><div class="ex-body" style="margin-top:2px">${o.rlabel || ""}</div></div></div>`;
+  if (actions) html += `<div class="ex-actions">` + actions.map(a => `<div class="btn ${a.s}">${a.icon ? I[a.icon] : ""}${a.l}</div>`).join("") + `</div>`;
+  if (countdown) html += `<div class="ex-countdown"><i></i></div>`;
+  html += `</div>`;
+  return html;
+}
+
+/* fade only the menubar parts the island actually covers - the rest stay
+   visible so the macOS context survives the expanded state */
+function fadeCoveredMenubar(stageEl, islandEl, partsSel, on) {
+  const parts = stageEl.querySelectorAll(partsSel);
+  if (!on) { parts.forEach(p => p.classList.remove("mb-dim")); return; }
+  setTimeout(() => {
+    const ir = islandEl.getBoundingClientRect();
+    parts.forEach(p => {
+      const r = p.getBoundingClientRect();
+      const covered = r.left < ir.right + 8 && r.right > ir.left - 8 && r.top < ir.bottom + 4;
+      p.classList.toggle("mb-dim", covered);
+    });
+  }, 360);
+}
+
+/* ============================================================================
+   01 HERO
+   ========================================================================== */
+(function hero() {
+  const host = document.getElementById("heroHost");
+  const island = createIsland(host, { w: 218, h: 34, expW: 380, accent: "#4a9eff" });
+  const stageEl = document.getElementById("stage");
+  const _heroSetState = island.setState;
+  island.setState = (n, h) => { const r = _heroSetState(n, h); fadeCoveredMenubar(stageEl, island.el, ".menubar .left, .menubar .right", island.expanded); return r; };
+  let mode = "notch";
+  let timerInt = null;
+
+  const idleCompact = () => compactBody({ glyph: "bot", label: "syncfu", trail: '<span class="pulse"></span>' });
+
+  const SCEN = {
+    idle() {
+      clearInterval(timerInt);
+      island.setState("compact", idleCompact());
+    },
+    incoming() {
+      clearInterval(timerInt);
+      island.setState("expanded", expandedBody({ icon: "pr", sender: "ci · github", title: "PR #482 ready to merge", body: "All 47 checks green · 2 approvals", time: "now", actions: [{ s: "primary", l: "Merge", icon: "check" }, { s: "secondary", l: "Open" }], countdown: true }));
+    },
+    decision() {
+      clearInterval(timerInt);
+      island.setState("expanded", expandedBody({ icon: "rocket", sender: "deploy", title: "Ship to production?", body: "main &rarr; prod · 12 commits", actions: [{ s: "primary", l: "Ship it", icon: "check" }, { s: "danger", l: "Cancel" }] }));
+    },
+    progress() {
+      clearInterval(timerInt);
+      let p = 0.05;
+      island.setState("expanded", expandedBody({ icon: "rocket", sender: "deploy", title: "Deploying to production", progress: 0.05, plabel: "uploading" }));
+      timerInt = setInterval(() => {
+        p = Math.min(1, p + 0.07);
+        const bar = island.el.querySelector(".pbar > i");
+        const lab = island.el.querySelectorAll(".plabel span")[1];
+        if (bar) bar.style.width = Math.round(p * 100) + "%";
+        if (lab) lab.textContent = Math.round(p * 100) + "%";
+        if (p >= 1) {
+          clearInterval(timerInt);
+          island.setState("expanded", expandedBody({ icon: "check", sender: "deploy", title: "Deployed", body: "live in 41s", time: "now", countdown: true }));
+          setTimeout(() => SCEN.idle(), 2200);
+        }
+      }, 420);
+    },
+    collapse() { SCEN.idle(); }
+  };
+
+  document.getElementById("controls").addEventListener("click", (e) => {
+    const s = e.target.closest("[data-scenario]");
+    const p = e.target.closest("[data-platform-btn]");
+    if (s) {
+      document.querySelectorAll("[data-scenario]").forEach(b => b.classList.remove("active"));
+      s.classList.add("active");
+      SCEN[s.dataset.scenario]();
+    }
+    if (p) {
+      document.querySelectorAll("[data-platform-btn]").forEach(b => b.classList.remove("active"));
+      p.classList.add("active");
+      const plat = p.dataset.platformBtn;
+      document.documentElement.dataset.platform = plat;
+      mode = plat === "macos" ? "notch" : "float";
+      island.set({ mode });
+    }
+  });
+  island.el.addEventListener("click", () => {
+    if (island.state === "compact") SCEN.incoming(); else SCEN.idle();
+  });
+  SCEN.idle();
+})();
+
+/* ============================================================================
+   02 PLAYGROUND
+   ========================================================================== */
+(function playground() {
+  const root = document.documentElement;
+  const pg = document.getElementById("pg");
+  const host = document.getElementById("island-host");
+
+  const DEFAULTS = { w: 218, expW: 380, h: 34, opacity: 94, topR: 6, botR: 14, scaling: true, accent: "#4a9eff", mode: "notch", position: "center", appearance: "dark", reduced: false, hideCapture: true };
+  const PRESETS = {
+    apple: { w: 218, expW: 380, h: 34, opacity: 94, topR: 6, botR: 14, scaling: true, accent: "#4a9eff", mode: "notch" },
+    slim:  { w: 172, expW: 340, h: 27, opacity: 90, topR: 4, botR: 10, scaling: false, accent: "#2ed573", mode: "notch" },
+    big:   { w: 300, expW: 520, h: 48, opacity: 98, topR: 10, botR: 22, scaling: true, accent: "#ffa502", mode: "notch" }
+  };
+  const SWATCHES = [
+    { c: "#2ed573", n: "low" }, { c: "#4a9eff", n: "normal" }, { c: "#ffa502", n: "high" }, { c: "#ff3b30", n: "critical" },
+    { c: "#af52de", n: "" }, { c: "#ff2d92", n: "" }, { c: "#5ac8fa", n: "" }, { c: "#ffd60a", n: "" }
+  ];
+  let state = Object.assign({}, DEFAULTS);
+
+  const island = createIsland(host, {
+    w: state.w, h: state.h, expW: state.expW, opacity: state.opacity / 100,
+    topR: state.topR, botR: state.botR, accent: state.accent, mode: state.mode,
+    cornerScaling: state.scaling, reduced: state.reduced, appearance: state.appearance
+  });
+  /* fade only the covered menubar parts while the island is expanded */
+  const pgstageEl = pg.querySelector(".pgstage");
+  const _pgSetState = island.setState;
+  island.setState = (n, h) => { const r = _pgSetState(n, h); fadeCoveredMenubar(pgstageEl, island.el, ".pmenubar > div", island.expanded); return r; };
+
+  const compactHTML = () => `<div class="di-compact"><span class="di-dot pulse2"></span><span class="di-sender">claude-code · running</span><span class="di-badge">3</span></div>`;
+  const expandedHTML = () => `<div class="di-expanded"><div class="di-headr"><span class="di-dot lg"></span><div class="di-titles"><div class="di-title">Approval needed</div><div class="di-sub">claude-code · deploy to prod</div></div><span class="di-timer">0:08</span></div><div class="di-msg">Run database migration 0042 before the deploy proceeds?</div><div class="di-actions2"><button class="di-btn2">Dismiss</button><button class="di-btn2 accent">Approve</button></div></div>`;
+
+  function accentInk(hex) {
+    const h = hex.replace("#", ""); const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), bl = parseInt(h.slice(4, 6), 16);
+    return (0.299 * r + 0.587 * g + 0.114 * bl) > 150 ? "#0a0d14" : "#ffffff";
+  }
+  function apply() {
+    root.style.setProperty("--di-w", state.w + "px");
+    root.style.setProperty("--di-h", state.h + "px");
+    root.style.setProperty("--di-exp-w", state.expW + "px");
+    root.style.setProperty("--di-opacity", state.opacity / 100);
+    root.style.setProperty("--di-top-r", state.topR + "px");
+    root.style.setProperty("--di-bot-r", state.botR + "px");
+    root.style.setProperty("--di-shoulder-scale", state.scaling ? "1" : "0");
+    host.style.setProperty("--di-accent-ink", accentInk(state.accent));
+    island.set({
+      w: state.w, h: state.h, expW: state.expW, opacity: state.opacity / 100,
+      topR: state.topR, botR: state.botR, accent: state.accent, mode: state.mode,
+      cornerScaling: state.scaling, reduced: state.reduced, appearance: state.appearance
+    });
+    host.className = state.mode === "float" ? "float pos-" + state.position : "";
+    island.remeasure();
+    renderJSON();
+  }
+  function renderJSON() {
+    const o = { island: {
+      compactWidth: state.w, expandedWidth: state.expW, height: state.h,
+      surfaceOpacity: +(state.opacity / 100).toFixed(2),
+      topRadius: state.topR, bottomRadius: state.botR, cornerScaling: state.scaling,
+      accent: state.accent.toLowerCase(), mode: state.mode, position: state.position,
+      appearance: state.appearance,
+      reducedMotion: state.reduced, hideFromScreenCapture: state.hideCapture
+    } };
+    pg.__spec = o;
+    document.getElementById("json-out").innerHTML = colorize(o);
+  }
+  function colorize(o) {
+    return JSON.stringify(o, null, 2)
+      .replace(/("(\\.|[^"\\])*")(\s*:)/g, '<span class="k">$1</span>$3')
+      .replace(/:\s*("(\\.|[^"\\])*")/g, ': <span class="s">$1</span>')
+      .replace(/:\s*(-?\d+\.?\d*)/g, ': <span class="n">$1</span>')
+      .replace(/:\s*(true|false)/g, ': <span class="b">$1</span>');
+  }
+  function fill(el) { const p = (el.value - el.min) / (el.max - el.min) * 100; el.style.setProperty("--fill", p + "%"); }
+  function bindSlider(id, key, unitEl, fmt) {
+    const el = document.getElementById(id), out = document.getElementById(unitEl);
+    el.addEventListener("input", () => { state[key] = +el.value; out.textContent = fmt(el.value); fill(el); apply(); });
+    el._sync = () => { el.value = state[key]; out.textContent = fmt(state[key]); fill(el); };
+    return el;
+  }
+  const px = v => v + " px";
+  const sliders = [
+    bindSlider("s-w", "w", "v-w", px), bindSlider("s-expw", "expW", "v-expw", px),
+    bindSlider("s-h", "h", "v-h", px), bindSlider("s-op", "opacity", "v-op", v => v + "%"),
+    bindSlider("s-top", "topR", "v-top", px), bindSlider("s-bot", "botR", "v-bot", px)
+  ];
+  const tScale = document.getElementById("t-scale");
+  tScale.addEventListener("change", () => { state.scaling = tScale.checked; apply(); });
+  const tReduced = document.getElementById("t-reduced");
+  tReduced.addEventListener("change", () => { state.reduced = tReduced.checked; apply(); });
+  const tHide = document.getElementById("t-hide");
+  tHide.addEventListener("change", () => { state.hideCapture = tHide.checked; renderJSON(); });
+
+  const swWrap = document.getElementById("swatches");
+  SWATCHES.forEach(sw => {
+    const b = document.createElement("button");
+    b.className = "swatch"; b.style.background = sw.c; b.style.color = sw.c; b.dataset.c = sw.c;
+    b.setAttribute("aria-label", "Accent " + (sw.n || sw.c));
+    b.addEventListener("click", () => setAccent(sw.c));
+    swWrap.appendChild(b);
+  });
+  const accentColor = document.getElementById("accent-color"), hexVal = document.getElementById("hex-val");
+  accentColor.addEventListener("input", () => setAccent(accentColor.value));
+  hexVal.addEventListener("change", () => { if (/^#?[0-9a-fA-F]{6}$/.test(hexVal.value)) setAccent(hexVal.value.startsWith("#") ? hexVal.value : "#" + hexVal.value); });
+  function setAccent(c) {
+    state.accent = c.toLowerCase();
+    accentColor.value = state.accent; hexVal.value = state.accent.toUpperCase();
+    [...swWrap.children].forEach(b => b.classList.toggle("on", b.dataset.c.toLowerCase() === state.accent));
+    apply();
+  }
+  const segMode = document.getElementById("seg-mode"), segPos = document.getElementById("seg-pos");
+  segMode.addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    state.mode = b.dataset.mode;
+    [...segMode.children].forEach(x => x.classList.toggle("on", x === b));
+    [...segPos.children].forEach(x => x.disabled = state.mode !== "float");
+    apply();
+  });
+  segPos.addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b || b.disabled) return;
+    state.position = b.dataset.pos;
+    [...segPos.children].forEach(x => x.classList.toggle("on", x === b));
+    apply();
+  });
+  const segAppear = document.getElementById("seg-appear");
+  segAppear.addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    state.appearance = b.dataset.appear;
+    [...segAppear.children].forEach(x => x.classList.toggle("on", x === b));
+    apply();
+  });
+  const demoC = document.getElementById("demo-compact"), demoE = document.getElementById("demo-expanded");
+  function showState(exp) {
+    demoC.classList.toggle("on", !exp); demoE.classList.toggle("on", exp);
+    island.setState(exp ? "expanded" : "compact", exp ? expandedHTML() : compactHTML());
+  }
+  demoC.addEventListener("click", () => showState(false));
+  demoE.addEventListener("click", () => showState(true));
+  island.el.addEventListener("click", () => showState(island.state === "compact"));
+
+  document.querySelectorAll("[data-preset]").forEach(btn => {
+    btn.addEventListener("click", () => { Object.assign(state, PRESETS[btn.dataset.preset]); syncControls(); apply(); });
+  });
+  document.getElementById("btn-reset").addEventListener("click", () => { state = Object.assign({}, DEFAULTS); syncControls(); apply(); });
+  document.getElementById("btn-copy").addEventListener("click", e => {
+    navigator.clipboard && navigator.clipboard.writeText(JSON.stringify(pg.__spec, null, 2)).then(() => {
+      e.target.textContent = "Copied"; setTimeout(() => e.target.textContent = "Copy", 1400);
+    }).catch(() => {});
+  });
+  function syncControls() {
+    sliders.forEach(el => el._sync());
+    tScale.checked = state.scaling; tReduced.checked = state.reduced; tHide.checked = state.hideCapture;
+    accentColor.value = state.accent; hexVal.value = state.accent.toUpperCase();
+    [...swWrap.children].forEach(b => b.classList.toggle("on", b.dataset.c.toLowerCase() === state.accent.toLowerCase()));
+    [...segMode.children].forEach(x => x.classList.toggle("on", x.dataset.mode === state.mode));
+    [...segPos.children].forEach(x => { x.classList.toggle("on", x.dataset.pos === state.position); x.disabled = state.mode !== "float"; });
+    [...segAppear.children].forEach(x => x.classList.toggle("on", x.dataset.appear === state.appearance));
+  }
+  document.getElementById("pg-theme-toggle").addEventListener("click", () => {
+    const cur = pg.getAttribute("data-pg-theme") || "dark";
+    pg.setAttribute("data-pg-theme", cur === "dark" ? "light" : "dark");
+  });
+
+  syncControls(); apply(); showState(false);
+})();
+
+/* ============================================================================
+   03 OVERFLOW – three many-notification models (one engine)
+   ========================================================================== */
+(function overflow() {
+  const REDUCED = prefersReducedMotion();
+  const PRIO = {
+    low:      { hex: "#2ed573", rank: 1, timeout: 6000 },
+    normal:   { hex: "#4a9eff", rank: 2, timeout: 8000 },
+    high:     { hex: "#ffa502", rank: 3, timeout: 12000 },
+    critical: { hex: "#ff3b30", rank: 4, timeout: Infinity }
+  };
+  const SENDERS = [
+    { name: "GitHub", glyph: "🐙", bg: "#1f2328" }, { name: "Claude", glyph: "✳️", bg: "#c96442" },
+    { name: "Linear", glyph: "📐", bg: "#5e6ad2" }, { name: "Slack", glyph: "💬", bg: "#4a154b" },
+    { name: "Vercel", glyph: "▲", bg: "#0b0b0b" }, { name: "Sentry", glyph: "🐛", bg: "#362d59" },
+    { name: "Stripe", glyph: "💳", bg: "#635bff" }, { name: "Figma", glyph: "🎨", bg: "#2c2c2c" }
+  ];
+  const TITLES = {
+    low: ["starred your repo", "viewed your profile", "reacted 👍", "started following you"],
+    normal: ["new comment on #482", "review requested", "build queued", "assigned you an issue"],
+    high: ["PR needs your review", "deploy awaiting approval", "CI pipeline failing", "2 conflicts to resolve"],
+    critical: ["production is down", "security alert: exposed key", "payment failed", "p1 incident – you are paged"]
+  };
+  const PRIO_BAG = ["low", "low", "low", "normal", "normal", "normal", "normal", "high", "high", "critical"];
+  let _uid = 0;
+  const pick = a => a[Math.floor(Math.random() * a.length)];
+  function makeNotif() { const priority = pick(PRIO_BAG); return { id: ++_uid, sender: pick(SENDERS), priority, title: pick(TITLES[priority]) }; }
+  const accentHex = n => PRIO[n.priority].hex;
+  function badgeInfo(n) { const label = n > 9 ? "9+" : String(n); return { label, w: 26 + 8 * (label.length - 1) }; }
+  const ranked = list => [...list].sort((a, b) => (PRIO[b.priority].rank - PRIO[a.priority].rank) || (b.id - a.id));
+  const spotlight = list => ranked(list)[0];
+  function rankedDedup(list) { const seen = new Set(), out = []; ranked(list).forEach(n => { const k = n.sender.name + "|" + n.title; if (!seen.has(k)) { seen.add(k); out.push(n); } }); return out; }
+  const esc = s => String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+  const avatar = (s, lg) => `<span class="ava${lg ? " lg" : ""}" style="background:${s.bg}">${s.glyph}</span>`;
+  function compactHtml(list) {
+    const spot = spotlight(list), acc = accentHex(spot), { label, w } = badgeInfo(list.length);
+    return `<div class="cmp" style="--acc:${acc}">${avatar(spot.sender)}<span class="cmp-txt"><b>${esc(spot.sender.name)}</b><i>${esc(spot.title)}</i></span><span class="badge" style="width:${w}px">${label}</span></div>`;
+  }
+  const idleHtml = () => `<div class="cmp idle"><span class="idle-dot"></span></div>`;
+  function absorbUp(node, done) {
+    const anim = node.animate(
+      [{ opacity: 1, offset: 0 }, { transform: "translateY(-40px) scale(.4)", opacity: 0, offset: 1 }],
+      { duration: REDUCED ? 1 : 360, easing: "cubic-bezier(.34,1.3,.5,1)", fill: "forwards" });
+    anim.onfinish = () => done && done();
+  }
+
+  function ModelA() {
+    const stage = document.getElementById("stageA");
+    const island = createIsland(stage.querySelector(".island-host"), { expW: 340, accent: "#4a9eff" });
+    let list = [], expanded = false, idx = 0;
+    const timers = new Map(), nEl = document.querySelector('[data-n="A"]');
+    const order = () => ranked(list);
+    const updateCount = () => nEl.textContent = list.length;
+    function renderCompact() {
+      expanded = false; updateCount(); stage.classList.remove("mb-hide");
+      if (!list.length) { island.set({ w: 112 }); island.setState("compact", idleHtml()); return; }
+      island.set({ w: 158 + badgeInfo(list.length).w });
+      island.setState("compact", compactHtml(list));
+    }
+    function cardHtml(n, i, total) {
+      return `<div class="card2" style="--acc:${accentHex(n)}"><div class="card-hd">${avatar(n.sender, true)}<div class="card-meta"><b>${esc(n.sender.name)}</b><span class="tstamp">now</span></div><span class="prio-chip">${n.priority}</span><button class="ic-btn" data-act="collapse">▾</button></div><div class="card-title2">${esc(n.title)}</div><div class="card-ft"><div class="nav"><button class="ic-btn" data-act="prev">‹</button><span class="idxlab">${i + 1} / ${total}</span><button class="ic-btn" data-act="next">›</button></div><button class="act-btn" data-act="dismiss">Dismiss</button></div></div>`;
+    }
+    function renderExpanded() {
+      expanded = true; stage.classList.add("mb-hide"); const ord = order();
+      if (!ord.length) { renderCompact(); return; }
+      if (idx >= ord.length) idx = 0; if (idx < 0) idx = ord.length - 1;
+      island.setState("expanded", cardHtml(ord[idx], idx, ord.length));
+    }
+    function dismissCurrent() {
+      const ord = order(), n = ord[idx]; if (!n) return;
+      const cardEl = island.el.querySelector(".card2");
+      const finish = () => { list = list.filter(x => x.id !== n.id); clearT(n.id); if (!list.length) renderCompact(); else { if (idx >= list.length) idx = 0; renderExpanded(); } };
+      if (cardEl) absorbUp(cardEl, finish); else finish();
+    }
+    function clearT(id) { const h = timers.get(id); if (h) { clearTimeout(h); timers.delete(id); } }
+    function scheduleT(n) {
+      const to = PRIO[n.priority].timeout; if (to === Infinity) return;
+      const fire = () => { if (expanded) { timers.set(n.id, setTimeout(fire, 1500)); return; } list = list.filter(x => x.id !== n.id); timers.delete(n.id); renderCompact(); };
+      timers.set(n.id, setTimeout(fire, to));
+    }
+    function send() { const n = makeNotif(); list.push(n); scheduleT(n); if (n.priority === "critical") idx = 0; island.pop(); if (expanded) renderExpanded(); else renderCompact(); }
+    function reset() { list.forEach(n => clearT(n.id)); list = []; idx = 0; renderCompact(); }
+    island.el.addEventListener("click", e => {
+      const act = e.target.closest("[data-act]")?.dataset.act;
+      if (!expanded) { if (list.length) renderExpanded(); return; }
+      const len = order().length;
+      if (act === "prev") { idx = (idx - 1 + len) % len; renderExpanded(); }
+      else if (act === "next") { idx = (idx + 1) % len; renderExpanded(); }
+      else if (act === "dismiss") dismissCurrent();
+      else if (act === "collapse") renderCompact();
+    });
+    let sx = null;
+    island.el.addEventListener("pointerdown", e => { sx = e.clientX; });
+    island.el.addEventListener("pointerup", e => {
+      if (sx == null || !expanded) { sx = null; return; }
+      const dx = e.clientX - sx; sx = null;
+      if (Math.abs(dx) > 36) { const len = order().length; idx = (dx < 0 ? idx + 1 : idx - 1 + len) % len; renderExpanded(); }
+    });
+    renderCompact();
+    return { send, reset };
+  }
+
+  function ModelB() {
+    const stage = document.getElementById("stageB");
+    const island = createIsland(stage.querySelector(".island-host"), { expW: 340, accent: "#2ed573" });
+    let list = [], expanded = false;
+    const timers = new Map(), nEl = document.querySelector('[data-n="B"]');
+    const updateCount = () => nEl.textContent = list.length;
+    function renderCompact() {
+      expanded = false; updateCount(); stage.classList.remove("mb-hide");
+      if (!list.length) { island.set({ w: 112 }); island.setState("compact", idleHtml()); return; }
+      island.set({ w: 158 + badgeInfo(list.length).w });
+      island.setState("compact", compactHtml(list));
+    }
+    const actionLabel = p => (p === "critical" || p === "high") ? "Review" : p === "normal" ? "Open" : "View";
+    function rowHtml(n, i) {
+      return `<div class="lrow" style="--acc:${accentHex(n)};animation-delay:${i * 50}ms" data-id="${n.id}"><span class="dot"></span>${avatar(n.sender)}<span class="row-txt"><b>${esc(n.sender.name)} · ${esc(n.title)}</b><span>${n.priority} · now</span></span><button class="row-act" data-act="act" data-id="${n.id}">${actionLabel(n.priority)}</button></div>`;
+    }
+    function listHtml() {
+      const rows = rankedDedup(list), body = rows.map(rowHtml).join(""), dupe = list.length - rows.length;
+      const countTxt = rows.length + (dupe > 0 ? ` · ${dupe} merged` : "");
+      const scrolls = rows.length > 5 ? " scrolls" : "";
+      return `<div class="lst" style="width:100%;--acc:#2ed573"><div class="lst-hd"><span class="t">Notifications</span><span class="r"><span class="lst-count">${countTxt}</span><button class="ic-btn" data-act="collapse">▴</button></span></div><div class="lst-body${scrolls}">${body}<div class="lst-spacer"></div></div></div>`;
+    }
+    function renderExpanded() { if (!list.length) { renderCompact(); return; } expanded = true; stage.classList.add("mb-hide"); island.setState("expanded", listHtml()); }
+    function clearT(id) { const h = timers.get(id); if (h) { clearTimeout(h); timers.delete(id); } }
+    function scheduleT(n) {
+      const to = PRIO[n.priority].timeout; if (to === Infinity) return;
+      const fire = () => { if (expanded) { timers.set(n.id, setTimeout(fire, 1500)); return; } list = list.filter(x => x.id !== n.id); timers.delete(n.id); renderCompact(); };
+      timers.set(n.id, setTimeout(fire, to));
+    }
+    function send() { const n = makeNotif(); list.push(n); scheduleT(n); island.pop(); if (expanded) renderExpanded(); else renderCompact(); }
+    function reset() { list.forEach(n => clearT(n.id)); list = []; renderCompact(); }
+    island.el.addEventListener("click", e => {
+      const t = e.target.closest("[data-act]"), act = t?.dataset.act;
+      if (!expanded) { if (list.length) renderExpanded(); return; }
+      if (act === "collapse") { renderCompact(); return; }
+      if (act === "act") {
+        const id = +t.dataset.id, rowEl = island.el.querySelector(`.lrow[data-id="${id}"]`);
+        const finish = () => { list = list.filter(x => x.id !== id); clearT(id); if (!list.length) renderCompact(); else renderExpanded(); };
+        if (rowEl) absorbUp(rowEl, finish); else finish();
+      }
+    });
+    renderCompact();
+    return { send, reset };
+  }
+
+  function ModelC() {
+    const stage = document.getElementById("stageC");
+    const island = createIsland(stage.querySelector(".island-host"), { expW: 300, accent: "#ffa502" });
+    const stackHost = stage.querySelector(".stack-host");
+    let list = [];
+    const timers = new Map(), nEl = document.querySelector('[data-n="C"]');
+    const ISLAND_H = 38, GAP = 52;
+    const updateCount = () => nEl.textContent = list.length;
+    function renderIsland() {
+      if (!list.length) { island.set({ w: 112 }); island.setState("compact", idleHtml()); return; }
+      island.set({ w: 158 + badgeInfo(list.length).w });
+      island.setState("compact", compactHtml(list));
+    }
+    function renderStack() {
+      updateCount(); renderIsland();
+      stackHost.querySelectorAll(".crowd-warn").forEach(x => x.remove());
+      /* the crowd-warn banner and the stage-hint both pin to the stage floor -
+         hide the hint while the warning is up so they never overlap. */
+      const hint = stage.querySelector(".stage-hint");
+      if (hint) hint.style.opacity = list.length >= 5 ? "0" : "";
+      const cards = ranked(list);
+      const existing = new Map([...stackHost.querySelectorAll(".stack-card")].map(el => [el.dataset.id, el]));
+      stackHost.querySelectorAll(".stack-card").forEach(el => { if (!list.find(n => String(n.id) === el.dataset.id)) el.remove(); });
+      cards.forEach((n, i) => {
+        let el = existing.get(String(n.id));
+        const top = ISLAND_H + 10 + i * GAP, scale = Math.max(0.82, 1 - i * 0.04), width = 240 - i * 6;
+        if (!el) {
+          el = document.createElement("div"); el.className = "stack-card"; el.dataset.id = n.id;
+          el.style.setProperty("--acc", accentHex(n));
+          el.innerHTML = `<span class="sc-dot"></span>${avatar(n.sender)}<span class="sc-txt"><b>${esc(n.sender.name)} · ${esc(n.title)}</b><span>${n.priority} · now</span></span>`;
+          el.addEventListener("click", () => { const finish = () => { list = list.filter(x => x.id !== n.id); clearT(n.id); renderStack(); }; absorbUp(el, finish); });
+          stackHost.appendChild(el);
+        }
+        el.style.top = top + "px"; el.style.width = width + "px";
+        el.style.transform = `translateX(-50%) scale(${scale})`;
+        el.style.opacity = String(Math.max(0.55, 1 - i * 0.12)); el.style.zIndex = String(50 - i);
+      });
+      if (list.length >= 5) {
+        const warn = document.createElement("div"); warn.className = "crowd-warn";
+        warn.textContent = `⚠ Screen crowding at N=${list.length} – cards now occlude the desktop. This is why no app ships stacking.`;
+        stackHost.appendChild(warn);
+      }
+    }
+    function clearT(id) { const h = timers.get(id); if (h) { clearTimeout(h); timers.delete(id); } }
+    function scheduleT(n) { const to = PRIO[n.priority].timeout; if (to === Infinity) return; timers.set(n.id, setTimeout(() => { list = list.filter(x => x.id !== n.id); timers.delete(n.id); renderStack(); }, to)); }
+    function send() { const n = makeNotif(); list.push(n); scheduleT(n); island.pop(); renderStack(); }
+    function reset() { list.forEach(n => clearT(n.id)); list = []; stackHost.querySelectorAll(".stack-card,.crowd-warn").forEach(x => x.remove()); renderStack(); }
+    renderIsland();
+    return { send, reset };
+  }
+
+  const models = { A: ModelA(), B: ModelB(), C: ModelC() };
+  document.querySelectorAll("[data-model]").forEach(btn => btn.addEventListener("click", () => models[btn.dataset.model].send()));
+  document.querySelectorAll("[data-reset]").forEach(btn => btn.addEventListener("click", () => models[btn.dataset.reset].reset()));
+})();
+
+/* ============================================================================
+   04 STATE GALLERY (static SVG-notch shots – Playwright targets keep shot-<id>)
+   ========================================================================== */
+(function gallery() {
+  const STATES = [
+    { id: "compact-idle", name: "Compact · idle", tag: "pill", desc: "Ambient. Glyph + pulse.",
+      compact: { glyph: "bot", label: "syncfu", trail: '<span class="pulse"></span>' } },
+    { id: "compact-timer", name: "Compact · live timer", tag: "pill", desc: "Long task running.",
+      compact: { glyph: "rocket", label: "deploy", trail: '<span class="ctimer">02:14</span>' } },
+    { id: "compact-ring", name: "Compact · live ring", tag: "pill", desc: "Progress at a glance.",
+      compact: { glyph: "bot", label: "build", trail: ringSVG("mini-ring", 0.68, 9) } },
+    { id: "compact-count", name: "Compact · grouped", tag: "pill", desc: "N stacked, one pill.",
+      compact: { glyph: "bot", label: "syncfu", trail: '<span class="count-badge">3</span>' } },
+    { id: "expanded-basic", name: "Expanded · basic", tag: "card", desc: "Icon, sender, title, body.",
+      exp: { icon: "check", sender: "agent", title: "Loop complete", body: "All 47 tests passing.", time: "now", countdown: true } },
+    { id: "expanded-actions", name: "Expanded · actions", tag: "card", desc: "Primary + secondary.",
+      exp: { icon: "pr", sender: "ci", title: "PR #482 ready", body: "47 checks green · 2 approvals", actions: [{ s: "primary", l: "Merge", icon: "check" }, { s: "secondary", l: "Open" }], countdown: true } },
+    { id: "expanded-decision", name: "Expanded · decision (--wait)", tag: "card", desc: "Blocks until click.",
+      exp: { icon: "rocket", sender: "deploy", title: "Ship to production?", body: "main &rarr; prod · 12 commits", actions: [{ s: "primary", l: "Ship it", icon: "check" }, { s: "danger", l: "Cancel" }] } },
+    { id: "expanded-progress", name: "Expanded · progress bar", tag: "card", desc: "Determinate bar.",
+      exp: { icon: "bot", sender: "training", title: "Fine-tune running", progress: 0.62, plabel: "epoch 3/5" } },
+    { id: "expanded-ring", name: "Expanded · progress ring", tag: "card", desc: "Ring style.",
+      exp: { icon: "clock", sender: "backup", title: "Snapshot in progress", ring: 0.42, rlabel: "12.3 GB / 29 GB" } },
+    { id: "expanded-critical", name: "Expanded · critical", tag: "card", desc: "Never auto-dismisses.",
+      exp: { icon: "alert", sender: "monitor", title: "Prod error rate spiking", body: "5xx at <code>8.4%</code> · last 5 min", actions: [{ s: "danger", l: "Acknowledge" }, { s: "secondary", l: "Logs" }], accent: "critical" } },
+    { id: "expanded-markdown", name: "Expanded · rich body", tag: "card", desc: "Inline code + longer copy.",
+      exp: { icon: "pr", sender: "claude code", title: "Review found 2 issues", body: "<code>auth.rs:88</code> unchecked unwrap · <code>db.rs:12</code> N+1 query. Fixable in one pass.", actions: [{ s: "primary", l: "Apply fixes" }, { s: "secondary", l: "Skip" }] } }
+  ];
+  const grid = document.getElementById("stateGrid");
+  STATES.forEach(s => {
+    const cell = document.createElement("div"); cell.className = "cell";
+    const demo = document.createElement("div"); demo.className = "demo"; demo.id = "shot-" + s.id;
+    cell.appendChild(demo);
+    const cap = document.createElement("div"); cap.className = "caption";
+    cap.innerHTML = `<div><div class="name">${s.name}</div><div class="desc">${s.desc}</div></div><span class="tag">${s.tag}</span>`;
+    cell.appendChild(cap);
+    grid.appendChild(cell);
+    if (s.compact) {
+      mountStatic(demo, { w: 218, h: 34, accent: "#4a9eff", html: compactBody(s.compact) });
+    } else {
+      const acc = s.exp.accent === "critical" ? "#ff3b30" : "#4a9eff";
+      mountStatic(demo, { w: 300, expanded: true, accent: acc, html: expandedBody(s.exp) });
+    }
+  });
+})();
+
+/* ============================================================================
+   05 CROSS-PLATFORM TRIO (static)
+   ========================================================================== */
+(function platforms() {
+  const smallExp = () => expandedBody({ icon: "check", sender: "agent", title: "Loop complete", body: "47 tests passing", time: "now" });
+  mountStatic(document.querySelector('[data-plat="mac"]'), { w: 260, expanded: true, accent: "#4a9eff", html: smallExp(), mode: "notch" });
+  mountStatic(document.querySelector('[data-plat="win"]'), { w: 260, expanded: true, accent: "#2ed573", html: smallExp(), mode: "float" });
+  mountStatic(document.querySelector('[data-plat="linux"]'), { w: 260, expanded: true, accent: "#ffa502", html: smallExp(), mode: "float" });
+})();
+
+/* ============================================================================
+   06 THEME GALLERY – the 27 --s-* override story
+   ========================================================================== */
+(function themes() {
+  const THEMES = [
+    { cls: "t-brand", name: "Brand blue (default)", code: "accentColor:#4a9eff", accent: "#4a9eff" },
+    { cls: "t-terminal", name: "Terminal green", code: "accent:#2ed573 · mono", accent: "#2ed573" },
+    { cls: "t-claude", name: "Claude", code: "accentColor:#d97757", accent: "#d97757" },
+    { cls: "t-danger", name: "Danger", code: "accent:#ff3b30", accent: "#ff3b30" },
+    { cls: "t-light", name: "Light theme", code: 'theme:"light"', accent: "#0a84ff", light: true },
+    { cls: "t-brand", name: "Custom radius", code: "cardBorderRadius:14", accent: "#4a9eff", topR: 10, botR: 14 },
+    { cls: "t-light tstage-light", name: "Light appearance", code: 'appearance:"light"', accent: "#0a84ff", osLight: true }
+  ];
+  const grid = document.getElementById("themeGrid");
+  THEMES.forEach(t => {
+    const cell = document.createElement("div"); cell.className = "theme-cell " + t.cls;
+    cell.innerHTML = `<div class="tbar"><span>${t.name}</span><span class="code">${t.code}</span></div><div class="tstage"></div>`;
+    grid.appendChild(cell);
+    const ex = expandedBody({ icon: "rocket", sender: "deploy", title: "Ship to production?", body: "main &rarr; prod · 12 commits", actions: [{ s: "primary", l: "Ship it" }, { s: "secondary", l: "Later" }] });
+    mountStatic(cell.querySelector(".tstage"), { w: 280, expanded: true, accent: t.accent, html: ex, opacity: t.light ? 1 : 0.94, topR: t.topR, botR: t.botR, light: t.osLight });
+  });
+})();
+
+/* ============================================================================
+   07 ANATOMY (static measured shapes)
+   ========================================================================== */
+(function anatomy() {
+  mountStatic(document.getElementById("anaCompact"), { w: 218, h: 34, accent: "#4a9eff",
+    html: compactBody({ glyph: "rocket", label: "deploy", trail: '<span class="ctimer">02:14</span>' }) });
+  mountStatic(document.getElementById("anaExpanded"), { w: 340, expanded: true, accent: "#4a9eff",
+    html: expandedBody({ icon: "pr", sender: "ci · github", title: "PR #482 ready to merge", body: "All 47 checks green · 2 approvals", time: "9:41", actions: [{ s: "primary", l: "Merge", icon: "check" }, { s: "secondary", l: "Open" }], countdown: true }) });
+})();
+
+/* ============================================================================
+   RUNTIME RENDER SELF-CHECK
+   Continuously verifies every island's shape is aligned with its box. If the
+   viewing browser ever misrenders (shape drifting from content), a red fault
+   banner appears with the measured offset - so a real render bug can never be
+   confused with a stale cached copy of this file.
+   ========================================================================== */
+(function renderSelfCheck() {
+  const banner = document.createElement("div");
+  banner.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:9999;display:none;" +
+    "background:#c62828;color:#fff;font:600 13px/1.4 -apple-system,sans-serif;" +
+    "padding:8px 14px;text-align:center;";
+  document.body.appendChild(banner);
+  function check() {
+    let fault = null;
+    document.querySelectorAll(".di-island").forEach(is => {
+      const p = is.querySelector(".di-shape path");
+      if (!p) return;
+      const ir = is.getBoundingClientRect(), pr = p.getBoundingClientRect();
+      if (!ir.width || !ir.height) return;
+      const dy = Math.abs(pr.y - ir.y), dx = Math.abs(pr.x - ir.x);
+      if (dy > 2.5 || dx > 2.5) fault = `shape offset dx ${dx.toFixed(1)}px / dy ${dy.toFixed(1)}px`;
+    });
+    if (fault) {
+      banner.textContent = "RENDER FAULT DETECTED: " + fault +
+        " - this is a real browser rendering bug in this revision; please screenshot this banner and report it.";
+      banner.style.display = "block";
+    } else banner.style.display = "none";
+  }
+  setInterval(check, 1500);
+  setTimeout(check, 400);
+})();
+</script>
+</body>
+</html>
