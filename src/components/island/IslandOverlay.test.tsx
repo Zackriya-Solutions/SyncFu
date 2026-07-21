@@ -1,10 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, act, waitFor } from "@testing-library/react";
 import { IslandOverlay } from "./IslandOverlay";
-import { useNotificationStore } from "@/stores/notificationStore";
 import { window as tauriWindow } from "@tauri-apps/api";
 import { emitMockEvent, clearMockListeners } from "@/__mocks__/tauri-api";
 import type { NotificationPayload } from "@/types/notification";
+import type { IslandRow, IslandSnapshot } from "@/types/islandSnapshot";
+
+// IslandOverlay is snapshot-driven (guard G10 / C1): its render comes ONLY from
+// the Rust-owned `island:snapshot`, never the frontend notification store. These
+// specs drive that event and assert the routing (count 0/1/>1) plus the C1
+// divergence guard (a store `notification:add` must NOT reach the island).
 
 function makeNotification(
   overrides: Partial<NotificationPayload> = {}
@@ -23,108 +28,96 @@ function makeNotification(
   };
 }
 
-describe("IslandOverlay", () => {
+function rowOf(n: NotificationPayload, hasWaiter = false): IslandRow {
+  return { ...n, hasWaiter };
+}
+
+/** Build a snapshot the way the Rust manager would (badge formula included). */
+function snapshotOf(notifs: NotificationPayload[]): IslandSnapshot {
+  const rows = notifs.map((n) => rowOf(n));
+  const count = notifs.length;
+  const badgeLabel = count > 9 ? "9+" : String(count);
+  const badgeWidth = 26 + 8 * (badgeLabel.length - 1);
+  return {
+    count,
+    badgeLabel,
+    badgeWidth,
+    merged: 0,
+    spotlight: rows[0] ?? null,
+    rows,
+  };
+}
+
+/** Render and flush the async snapshot/settings listener registration. */
+async function mount() {
+  render(<IslandOverlay />);
+  await act(async () => {
+    await Promise.resolve();
+  });
+}
+
+function emitSnapshot(snapshot: IslandSnapshot) {
+  act(() => emitMockEvent("island:snapshot", snapshot));
+}
+
+describe("IslandOverlay (snapshot-driven)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clearMockListeners();
-    useNotificationStore.getState().clear();
   });
 
   afterEach(() => {
     clearMockListeners();
   });
 
-  it("renders the island root container", () => {
-    render(<IslandOverlay />);
+  it("renders the island root container", async () => {
+    await mount();
     expect(screen.getByTestId("island-root")).toBeInTheDocument();
   });
 
-  it("renders an island notification as the expanded card on arrival", () => {
-    useNotificationStore.getState().add(makeNotification({ title: "Deploy?" }));
-    render(<IslandOverlay />);
+  it("count 1 -> single Island lifecycle (expanded card)", async () => {
+    await mount();
+    emitSnapshot(snapshotOf([makeNotification({ title: "Deploy?" })]));
     expect(screen.getByTestId("island-expanded")).toBeInTheDocument();
     expect(screen.getByText("Deploy?")).toBeInTheDocument();
+    // Not the Model B group.
+    expect(screen.queryByTestId("island-group")).not.toBeInTheDocument();
   });
 
-  it("renders ONLY island-presentation items, never card items (guard G1)", () => {
-    // A broadcast card add can reach this window; the island must ignore it.
-    useNotificationStore.getState().add(
-      makeNotification({ id: "card-1", title: "Card Title", presentation: "card" })
+  it("count > 1 -> Model B group (spotlight + badge), not a single Island", async () => {
+    await mount();
+    emitSnapshot(
+      snapshotOf([
+        makeNotification({ id: "a", title: "First" }),
+        makeNotification({ id: "b", title: "Second" }),
+      ])
     );
-    useNotificationStore.getState().add(
-      makeNotification({ id: "isl-2", title: "Island Title", presentation: "island" })
-    );
-
-    render(<IslandOverlay />);
-
-    expect(screen.getByText("Island Title")).toBeInTheDocument();
-    expect(screen.queryByText("Card Title")).not.toBeInTheDocument();
-  });
-
-  it("excludes items with undefined presentation (defaults to card)", () => {
-    useNotificationStore.getState().add(
-      makeNotification({ id: "u-1", title: "Untagged", presentation: undefined })
-    );
-    render(<IslandOverlay />);
-    expect(screen.queryByText("Untagged")).not.toBeInTheDocument();
+    expect(screen.getByTestId("island-group")).toBeInTheDocument();
+    expect(screen.getByTestId("island-badge")).toHaveTextContent("2");
+    // No single expanded card in grouped mode (it starts as the compact spotlight).
     expect(screen.queryByTestId("island-expanded")).not.toBeInTheDocument();
   });
 
-  it("ingests island notifications through the shared notificationStore", async () => {
-    // Single shared ingest: the island reuses useNotifications -> notificationStore,
-    // the same store the card uses. An island payload emitted on notification:add
-    // reaching this store is proof it flowed through that shared ingest. (This does
-    // NOT assert history persistence, which is unwired for all presentations - a
-    // T10 concern - so we make no claim about it here.)
-    render(<IslandOverlay />);
-
-    await waitFor(() => {
-      expect(useNotificationStore.getState().notifications).toHaveLength(0);
-    });
-
+  it("C1 guard: a store notification:add does NOT drive the island; only the snapshot does", async () => {
+    await mount();
+    // A raw store add event must be ignored (IslandOverlay does not read the store).
     act(() => {
-      emitMockEvent("notification:add", makeNotification({ id: "ingest-1", title: "Ingested" }));
-    });
-
-    expect(useNotificationStore.getState().notifications).toHaveLength(1);
-    expect(screen.getByText("Ingested")).toBeInTheDocument();
-  });
-
-  it("still renders the island when 6+ active card broadcasts arrive (no starvation)", async () => {
-    // Card adds are broadcast and reach the island window too. If they entered
-    // this window's store they would fill MAX_VISIBLE (5) slots and push a later
-    // island item into the queue, rendering nothing. The ingest predicate drops
-    // card payloads BEFORE the store, so the island always has room to render.
-    render(<IslandOverlay />);
-
-    await waitFor(() => {
-      expect(useNotificationStore.getState().notifications).toHaveLength(0);
-    });
-
-    act(() => {
-      for (let i = 0; i < 6; i++) {
-        emitMockEvent(
-          "notification:add",
-          makeNotification({ id: `card-${i}`, title: `Card ${i}`, presentation: "card" })
-        );
-      }
       emitMockEvent(
         "notification:add",
-        makeNotification({ id: "isl-survivor", title: "Survives", presentation: "island" })
+        makeNotification({ id: "store-only", title: "FromStore" })
       );
     });
+    expect(screen.queryByText("FromStore")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("island-expanded")).not.toBeInTheDocument();
 
-    // Only the island item entered the store; the 6 cards were dropped at ingest.
-    expect(useNotificationStore.getState().notifications).toHaveLength(1);
-    expect(screen.getByText("Survives")).toBeInTheDocument();
-    expect(screen.getByTestId("island-expanded")).toBeInTheDocument();
+    // The authoritative snapshot IS the source of truth.
+    emitSnapshot(snapshotOf([makeNotification({ id: "snap", title: "FromSnapshot" })]));
+    expect(screen.getByText("FromSnapshot")).toBeInTheDocument();
   });
 
-  it("hides the island window when it holds no island notification", async () => {
+  it("count 0 -> hides the island window", async () => {
     const hideMock = tauriWindow.getCurrentWindow().hide;
-    render(<IslandOverlay />);
-    await waitFor(() => {
-      expect(hideMock).toHaveBeenCalled();
-    });
+    await mount();
+    await waitFor(() => expect(hideMock).toHaveBeenCalled());
   });
 });

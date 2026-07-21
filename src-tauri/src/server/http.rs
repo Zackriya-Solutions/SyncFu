@@ -170,6 +170,7 @@ async fn handle_notify(
             Ok(()) => info!("Notification emitted: id={id} sender={}", req_sender),
             Err(e) => error!("Failed to emit notification:add: {e}"),
         }
+        crate::emit_island_snapshot(app, &state.manager, &state.waiters).await;
     } else {
         warn!("No app_handle — cannot emit notification event");
     }
@@ -197,6 +198,7 @@ async fn handle_update(
                 "notification:update",
                 &serde_json::json!({ "id": id, "update": update }),
             );
+            crate::emit_island_snapshot(app, &state.manager, &state.waiters).await;
         }
         info!("Notification updated: id={id}");
         StatusCode::OK
@@ -254,6 +256,7 @@ async fn handle_action(
             if state.manager.active_count().await == 0 {
                 crate::overlay::hide_for(app, notification.presentation);
             }
+            crate::emit_island_snapshot(app, &state.manager, &state.waiters).await;
         }
     }
 
@@ -335,6 +338,7 @@ async fn handle_dismiss(
             if state.manager.active_count().await == 0 {
                 crate::overlay::hide_for(app, notification.presentation);
             }
+            crate::emit_island_snapshot(app, &state.manager, &state.waiters).await;
         }
         info!("Notification dismissed: id={id}");
         StatusCode::OK
@@ -358,6 +362,7 @@ async fn handle_dismiss_all(
         crate::overlay::panel::hide_panel(app);
         crate::overlay::island::hide_island(app);
         let _ = tauri::Emitter::emit(app, "notification:dismiss-all", &count);
+        crate::emit_island_snapshot(app, &state.manager, &state.waiters).await;
     }
 
     info!("All notifications dismissed: count={count}");

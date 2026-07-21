@@ -1,20 +1,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, act, cleanup } from "@testing-library/react";
 import { IslandOverlay } from "./IslandOverlay";
-import { useNotificationStore } from "@/stores/notificationStore";
-import { clearMockListeners } from "@/__mocks__/tauri-api";
+import { emitMockEvent, clearMockListeners } from "@/__mocks__/tauri-api";
 import type { NotificationPayload } from "@/types/notification";
+import type { IslandRow, IslandSnapshot } from "@/types/islandSnapshot";
 import { ringDash } from "@/lib/progress";
 
-// T5b lifecycle state-machine specs: ONE test per interruption row implemented at
-// the frontend lifecycle level (04-risk S1 / 02-arch S7). These drive the SHARED
-// notificationStore directly (the store is the single source of truth for both
-// renderers; the notification:update -> store wiring is covered in
-// useNotifications.test.ts). Anatomy (compact vs expanded) is React-owned, so the
-// morph controller's rAF loop is irrelevant to these assertions.
-//
-// Row -> test map is in the T5b return; list-open (row: expanded + 2nd notif) is a
-// T6 SEAM and is deliberately NOT exercised here.
+// T5b lifecycle state-machine specs at the SINGLE-notification level (count === 1).
+// T6 made IslandOverlay snapshot-driven (guard G10 / C1), so these drive the
+// `island:snapshot` event instead of the store, but the single Island lifecycle
+// (arrive expanded -> auto-collapse; in-place progress refresh; latest-wins;
+// dismiss -> hidden) is UNTOUCHED. The multi-notification (list-open) path is a
+// separate Model B concern covered in IslandGroup.test.tsx.
 
 function makeNotification(
   overrides: Partial<NotificationPayload> = {}
@@ -33,10 +30,38 @@ function makeNotification(
   };
 }
 
+function rowOf(n: NotificationPayload): IslandRow {
+  return { ...n, hasWaiter: false };
+}
+
+function snapshotOf(notifs: NotificationPayload[]): IslandSnapshot {
+  const rows = notifs.map(rowOf);
+  const count = notifs.length;
+  const badgeLabel = count > 9 ? "9+" : String(count);
+  return {
+    count,
+    badgeLabel,
+    badgeWidth: 26 + 8 * (badgeLabel.length - 1),
+    merged: 0,
+    spotlight: rows[0] ?? null,
+    rows,
+  };
+}
+
+async function mount() {
+  render(<IslandOverlay />);
+  await act(async () => {
+    await Promise.resolve();
+  });
+}
+
+function emitSnapshot(snapshot: IslandSnapshot) {
+  act(() => emitMockEvent("island:snapshot", snapshot));
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   clearMockListeners();
-  useNotificationStore.getState().clear();
 });
 
 afterEach(() => {
@@ -45,34 +70,29 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("Island lifecycle - interruption state machine", () => {
-  it("[hidden + arrival] presents the newest island notification expanded (C4)", () => {
-    render(<IslandOverlay />);
-    // Hidden: nothing rendered.
+describe("Island lifecycle - interruption state machine (single)", () => {
+  it("[hidden + arrival] presents the newest island notification expanded (C4)", async () => {
+    await mount();
     expect(screen.queryByTestId("island-expanded")).not.toBeInTheDocument();
 
-    act(() => {
-      useNotificationStore.getState().add(makeNotification({ title: "Ship it?" }));
-    });
+    emitSnapshot(snapshotOf([makeNotification({ title: "Ship it?" })]));
 
     expect(screen.getByTestId("island-expanded")).toBeInTheDocument();
     expect(screen.getByText("Ship it?")).toBeInTheDocument();
   });
 
-  it("[expanded + progress update] refreshes in place without remounting (no frame resize)", () => {
-    useNotificationStore
-      .getState()
-      .add(makeNotification({ id: "prog", progress: { value: 0.2, style: "bar" } }));
-    render(<IslandOverlay />);
+  it("[expanded + progress update] refreshes in place without remounting (no frame resize)", async () => {
+    await mount();
+    emitSnapshot(
+      snapshotOf([makeNotification({ id: "prog", progress: { value: 0.2, style: "bar" } })])
+    );
 
     const before = screen.getByTestId("island-expanded");
     expect(screen.getByText("20%")).toBeInTheDocument();
 
-    act(() => {
-      useNotificationStore
-        .getState()
-        .update("prog", { progress: { value: 0.7, style: "bar" } });
-    });
+    emitSnapshot(
+      snapshotOf([makeNotification({ id: "prog", progress: { value: 0.7, style: "bar" } })])
+    );
 
     // Same expanded card instance (same id -> no remount), fresh value shown.
     expect(screen.getByTestId("island-expanded")).toBe(before);
@@ -80,15 +100,15 @@ describe("Island lifecycle - interruption state machine", () => {
     expect(screen.queryByText("20%")).not.toBeInTheDocument();
   });
 
-  it("[compact + progress update] refreshes the live-activity even after collapse (never stale)", () => {
-    vi.stubGlobal("requestAnimationFrame", () => 1); // inert loop; anatomy is React-owned
+  it("[compact + progress update] refreshes the live-activity even after collapse (never stale)", async () => {
+    vi.stubGlobal("requestAnimationFrame", () => 1);
     vi.stubGlobal("cancelAnimationFrame", () => {});
+    await mount();
     vi.useFakeTimers();
 
-    useNotificationStore
-      .getState()
-      .add(makeNotification({ id: "prog", progress: { value: 0.2, style: "bar" } }));
-    render(<IslandOverlay />);
+    emitSnapshot(
+      snapshotOf([makeNotification({ id: "prog", progress: { value: 0.2, style: "bar" } })])
+    );
 
     // Arrives expanded, then auto-collapses to the compact pill (hold elapses).
     expect(screen.getByTestId("island-expanded")).toBeInTheDocument();
@@ -98,11 +118,9 @@ describe("Island lifecycle - interruption state machine", () => {
     expect(screen.getByTestId("island-compact")).toBeInTheDocument();
 
     // A progress event AFTER collapse updates the compact live-activity in place.
-    act(() => {
-      useNotificationStore
-        .getState()
-        .update("prog", { progress: { value: 0.85, style: "bar" } });
-    });
+    emitSnapshot(
+      snapshotOf([makeNotification({ id: "prog", progress: { value: 0.85, style: "bar" } })])
+    );
 
     const live = screen.getByTestId("island-compact-progress");
     const fill = live.querySelector(".di-mini-fill") as SVGCircleElement;
@@ -111,53 +129,48 @@ describe("Island lifecycle - interruption state machine", () => {
     );
     expect(screen.getByText("85%")).toBeInTheDocument();
 
-    vi.stubGlobal("requestAnimationFrame", undefined);
-    vi.stubGlobal("cancelAnimationFrame", undefined);
     vi.unstubAllGlobals();
   });
 
-  it("[morphing/any + new distinct notif] latest-wins re-present, previous item dropped", () => {
-    useNotificationStore.getState().add(makeNotification({ id: "a", title: "First" }));
-    render(<IslandOverlay />);
+  it("[latest-wins] a new count-1 spotlight re-presents and drops the previous item", async () => {
+    await mount();
+    emitSnapshot(snapshotOf([makeNotification({ id: "a", title: "First" })]));
     expect(screen.getByText("First")).toBeInTheDocument();
 
-    // A newer distinct notification becomes the spotlight (store prepends).
-    act(() => {
-      useNotificationStore.getState().add(makeNotification({ id: "b", title: "Second" }));
-    });
+    // The manager emits a fresh count-1 snapshot whose single item is now "b".
+    emitSnapshot(snapshotOf([makeNotification({ id: "b", title: "Second" })]));
 
     expect(screen.getByText("Second")).toBeInTheDocument();
     expect(screen.queryByText("First")).not.toBeInTheDocument();
-    // Re-presented expanded (arrive-expanded), a single spotlight item (no list).
     expect(screen.getAllByTestId("island-expanded")).toHaveLength(1);
   });
 
-  it("[any + dismissed] drops the item and the island goes hidden", () => {
-    useNotificationStore.getState().add(makeNotification({ id: "d1" }));
-    render(<IslandOverlay />);
+  it("[any + dismissed] drops the item and the island goes hidden", async () => {
+    await mount();
+    emitSnapshot(snapshotOf([makeNotification({ id: "d1" })]));
     expect(screen.getByTestId("island-expanded")).toBeInTheDocument();
 
-    act(() => {
-      useNotificationStore.getState().dismiss("d1");
-    });
+    emitSnapshot(snapshotOf([])); // count 0
 
     expect(screen.queryByTestId("island-expanded")).not.toBeInTheDocument();
     expect(screen.queryByTestId("island-compact")).not.toBeInTheDocument();
   });
 
-  it("[--wait decision] holds expanded past the collapse window (auto-collapse suppressed)", () => {
+  it("[--wait decision] holds expanded past the collapse window (auto-collapse suppressed)", async () => {
     vi.stubGlobal("requestAnimationFrame", () => 1);
     vi.stubGlobal("cancelAnimationFrame", () => {});
+    await mount();
     vi.useFakeTimers();
 
-    useNotificationStore.getState().add(
-      makeNotification({
-        id: "wait-1",
-        title: "Approve deploy?",
-        actions: [{ id: "ok", label: "Approve", style: "primary" }],
-      })
+    emitSnapshot(
+      snapshotOf([
+        makeNotification({
+          id: "wait-1",
+          title: "Approve deploy?",
+          actions: [{ id: "ok", label: "Approve", style: "primary" }],
+        }),
+      ])
     );
-    render(<IslandOverlay />);
     expect(screen.getByTestId("island-expanded")).toBeInTheDocument();
 
     // Well past the entry hold: a decision must STAY expanded (T5a suppression).

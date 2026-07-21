@@ -1,56 +1,94 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { event as tauriEvent, core } from "@tauri-apps/api";
-import { useNotifications } from "@/hooks/useNotifications";
 import { useIslandSettingsStore } from "@/stores/islandSettingsStore";
 import type { IslandSettings } from "@/types/islandSettings";
+import type { IslandRow, IslandSnapshot } from "@/types/islandSnapshot";
+import { EMPTY_ISLAND_SNAPSHOT } from "@/types/islandSnapshot";
 import { Island } from "./Island";
+import { IslandGroup } from "./IslandGroup";
 
-// Per-window host for the `island` webview. Reuses the SAME `useNotifications`
-// ingest as the overlay (single ingest, two renderers): whatever history wiring
-// lands applies to both presentations at that shared ingest, not here.
+// Per-window host for the `island` webview. Its render is driven ENTIRELY by the
+// Rust-owned `island:snapshot` (guard G10 / C1), NEVER by the frontend
+// notification store. This is the ratchet that makes the store's independent
+// queue (W1-W4 divergences, 85-verify A3) irrelevant by construction: this
+// component does not import `useNotifications`, so it cannot re-derive rank,
+// dedupe, count or spotlight - it renders only what the manager hands it.
 //
-// History status (honest state): history persistence is a T10 concern and is
-// currently UNWIRED for every presentation - `historyStore.prependEntry` has no
-// production caller and backend `manager.add()` writes no history. The island is
-// not special: once history is wired at the shared ingest, the island inherits it
-// for free. Do NOT wire history in this component.
+// Two paths into the snapshot (mirroring the settings pattern, closes W3):
+//   1. creation read - `get_island_snapshot` on mount, so a window that starts
+//      AFTER notifications exist reconciles immediately (no undercount);
+//   2. live change - the `island:snapshot` event on every manager change.
 //
-// Event routing (from T3): island `notification:add` arrives via
-// `emit_to("island", ...)`. As defense in depth we ingest only island items (see
-// the `useNotifications` predicate below) and additionally filter the render to
-// `presentation === "island"` (guard G1: the island renders island items only).
+// Routing (D5):
+//   count 0  -> hide the window (mirrors the overlay's hide-when-empty).
+//   count 1  -> the SINGLE-notification lifecycle: render <Island> exactly as
+//               before (T4b/T5a/T5b untouched). Data source is the snapshot
+//               spotlight, but the notification and lifecycle are identical.
+//   count >1 -> Model B: <IslandGroup> (spotlight + xN badge -> expanded list).
 
 export function IslandOverlay() {
-  // Ingest ONLY island items into this window's shared store. Broadcast `card`
-  // adds reach this window too; dropping them at ingest keeps them from consuming
-  // MAX_VISIBLE slots and starving an island notification into the queue.
-  const { notifications, dismiss } = useNotifications((n) => n.presentation === "island");
   const setSettings = useIslandSettingsStore((s) => s.setSettings);
+  const [snapshot, setSnapshot] = useState<IslandSnapshot>(EMPTY_ISLAND_SNAPSHOT);
 
-  // Island action path == card action path (T5a parity, no new transport): a
-  // button click drives the SAME `action_callback` command ->
-  // WaiterRegistry.notify -> CLI exit 0. Mirrors NotificationOverlay.handleAction.
+  // Island action path == card action path (T5a parity, no new transport): fire
+  // the row's primary action via `action_callback` -> WaiterRegistry.notify ->
+  // CLI exit 0. Each row maps 1:1 to its own id/waiter (A4).
   const handleAction = useCallback((notificationId: string, actionId: string) => {
     core.invoke("action_callback", { notificationId, actionId }).catch((err) =>
       console.error("[syncfu] action_callback failed:", err)
     );
   }, []);
 
-  // Transparent window background (same Cap pattern as the overlay panel).
+  // Dismiss a notification on the backend (auto-dismiss + row/close). Mirrors the
+  // card's exit-1 path: dismiss_notification -> waiter Dismissed. Snapshot-driven,
+  // so we never touch the frontend store (C1).
+  const handleDismiss = useCallback((id: string) => {
+    core.invoke("dismiss_notification", { id }).catch((err) =>
+      console.error("[syncfu] dismiss_notification failed:", err)
+    );
+  }, []);
+
+  // A Model B row action: fire the primary action if present, else dismiss. This
+  // resolves exactly that row's waiter (never crosses ids - A4).
+  const handleRowAction = useCallback(
+    (row: IslandRow) => {
+      if (row.actions.length > 0) handleAction(row.id, row.actions[0].id);
+      else handleDismiss(row.id);
+    },
+    [handleAction, handleDismiss]
+  );
+
+  // Transparent window background (same pattern as the overlay panel).
   useEffect(() => {
     document.documentElement.setAttribute("data-transparent-window", "true");
     document.body.style.background = "transparent";
   }, []);
 
-  // Island settings, two independent paths into the store (T7b, invariant b):
-  //   1. creation read - fetch the persisted settings once so a change made
-  //      BEFORE this window existed is honored on the first paint;
-  //   2. live change - the `island:settings` event (emitted by the backend on
-  //      set_island_settings) restyles the live island with no restart/resend.
-  // Island.tsx subscribes to the store, so both paths converge there. A dropped
-  // event cannot pin stale geometry forever: the next event (or the next window
-  // creation) re-reads the truth.
+  // Snapshot: creation read + live event (the ONLY render data source).
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let active = true;
+    (async () => {
+      try {
+        const initial = await core.invoke<IslandSnapshot>("get_island_snapshot");
+        if (active && initial) setSnapshot(initial);
+      } catch {
+        // No backend (browser harness): keep the empty snapshot.
+      }
+      unlisten = await tauriEvent.listen<IslandSnapshot>("island:snapshot", (ev) => {
+        setSnapshot(ev.payload as IslandSnapshot);
+      });
+      if (!active) unlisten?.();
+    })();
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, []);
+
+  // Island settings: creation read + live `island:settings` event (T7b). Both
+  // funnel through the store, which Island/IslandGroup subscribe to.
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     let active = true;
@@ -72,39 +110,17 @@ export function IslandOverlay() {
     };
   }, [setSettings]);
 
-  const islandItems = notifications.filter((n) => n.presentation === "island");
-  // Latest-wins spotlight: the store prepends on add, so `[0]` is the newest item.
-  // A new distinct notification therefore changes `current.id` and, via the
-  // `key={current.id}` below, re-presents cleanly (the previous Island unmounts and
-  // disposes its rAF - never a half-morph, T5b invariant c).
-  //
-  // T6 SEAM (list-open, D5): when `islandItems.length > 1`, T6 renders a ranked,
-  // deduped, capped list here (spotlight + xN badge -> expanded list) and pauses
-  // per-item auto-dismiss while it is open. T5b intentionally renders ONLY the
-  // single spotlight item; do NOT build the list here.
-  const current = islandItems[0];
-
-  // Float position drives where the capsule sits inside the transparent envelope
-  // (the Rust window anchor moves the frame to the matching monitor edge). Notch
-  // mode ignores position entirely (invariant e) - force top-center there. The
-  // capsule fill/shape/appearance still come from the store inside Island; this
-  // root only lays the capsule out (alignment + bottom-anchor).
   const { mode, position } = useIslandSettingsStore((s) => s.settings);
   const layoutPosition = mode === "float" ? position : "center";
 
-  // Hide the island window when it holds no island notification, mirroring the
-  // overlay's hide-when-empty. The fixed envelope is NEVER resized (D3), so
-  // there is no content-driven setSize here - only show/hide.
+  // Hide the island window when it holds no island notification (D3: never resize
+  // the envelope, only show/hide).
   useEffect(() => {
-    if (!current) {
-      getCurrentWindow().hide();
-    }
-  }, [current]);
+    if (snapshot.count === 0) getCurrentWindow().hide();
+  }, [snapshot.count]);
 
-  // Uncontrolled Island runs the ratified lifecycle: arrive EXPANDED, then
-  // auto-collapse to the compact pill (OQ-2). `key={current.id}` restarts that
-  // entry transition for each new notification. The window frame never resizes
-  // (D3); only the inner island morphs.
+  const single = snapshot.count === 1 ? snapshot.spotlight : null;
+
   return (
     <div
       data-testid="island-root"
@@ -112,12 +128,19 @@ export function IslandOverlay() {
       data-mode={mode}
       data-position={layoutPosition}
     >
-      {current && (
+      {single && (
         <Island
-          key={current.id}
-          notification={current}
+          key={single.id}
+          notification={single}
           onAction={handleAction}
-          onDismiss={dismiss}
+          onDismiss={handleDismiss}
+        />
+      )}
+      {snapshot.count > 1 && (
+        <IslandGroup
+          snapshot={snapshot}
+          onRowAction={handleRowAction}
+          onDismiss={handleDismiss}
         />
       )}
     </div>

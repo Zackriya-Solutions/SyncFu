@@ -62,6 +62,16 @@ impl WaiterRegistry {
         }
     }
 
+    /// The set of notification ids that currently have a pending waiter.
+    ///
+    /// Snapshotted by the island-snapshot emit site so the manager can enrich
+    /// each row's `hasWaiter` and exempt waiter-bearing notifications from Model B
+    /// dedupe (A4 / R-WAIT-ID). The registry stays keyed strictly by id; this only
+    /// exposes its key set, it never changes waiter identity or lifetime.
+    pub async fn active_ids(&self) -> std::collections::HashSet<String> {
+        self.waiters.read().await.keys().cloned().collect()
+    }
+
     /// Number of notifications with active waiters (for testing/debugging).
     #[cfg(test)]
     pub async fn waiter_count(&self) -> usize {
