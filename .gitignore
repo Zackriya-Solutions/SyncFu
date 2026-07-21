@@ -24,6 +24,8 @@ website/
 # Test / coverage
 coverage/
 html/
+test-results/
+playwright-report/
 research/
 target/
 
