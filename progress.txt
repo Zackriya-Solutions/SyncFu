@@ -193,3 +193,30 @@ world - newest data point for the A1 finding).
   label single-source, comment em dashes). All fixed by orchestrator (mechanical), gates re-green
   (90+22+32+12). MERGED. Reviewer observation carried to T4a: confirm 560px expanded list does not
   clip under notch overhang (envelope has no top slack).
+- DEPENDENCY RECONCILIATION: FINAL-plan index table drifted from authoritative synthesis specs.
+  T7a depends T4a (not just T3; C5 lock); T9 depends G2+T7a (not G2+T3 - needs the toggle).
+  Synthesis section 3 is authoritative (FINAL-plan says so itself). No parallel dispatch of T7a/T9
+  yet; critical path stays T4a -> T4b -> T5a -> T5b with T7a joining after T4a.
+- T4a RETURNED: first visible island (IslandOverlay/Island/Compact/Expanded + App.tsx routing +
+  overlay exclusion filter). 107 vitest + 58 playwright green x2. Self-caught circular content
+  measurement bug (content now normal-flow, SVG absolute). Notch-overhang check: grows downward,
+  no self-clip, envelope cap asserted; placement concern owned by T3/T5b. Commit f74e694.
+  Review dispatched.
+- T4a REVIEW: FINDINGS (2 MEDIUM + 1 LOW). F1: cardBg override out of CSS-var scope for the SVG
+  path (empirically proven; masked by near-identical fixture color) -> styleVars moves to island
+  root. F2: invariant-e comment FALSE - history is unwired for ALL presentations (prependEntry has
+  zero production callers); pre-existing product gap, now owned by T10; honest comment + test rename
+  in T4a. F3: island-window store starvation by card broadcasts (interim until T6 snapshot) ->
+  ingest filter. Fix-pass worker dispatched. DISCOVERY logged to thought ledger.
+- T4a FIX PASS: F1 styleVars to island root (path fill now provably overridable, green fixture);
+  F2 honest comments/test (history unwired truth); F3 ingestFilter predicate on useNotifications
+  (island window immune to card-broadcast starvation, 6-cards+1-island regression test). 108+58x2
+  green. Commit e15892b. MERGED. 7/17.
+- Dispatching T4b (morph engine) + T7a (settings backend) in parallel.
+- T7a RETURNED: settings backend complete (settings.rs + IPC + TS mirror/store). Playground-exact
+  schema incl {"island":{...}} wrapper; opacity stored 0.0-1.0 (documented decision - UI percent is
+  T7b domain); island.rs capture/interactive APIs parameterized. 105 lib + 112 frontend green.
+  Commit 1fc3ad2. Review dispatched. T4b still running.
+- T7a REVIEW: CLEAN (defaults field-exact vs mockup; clamps both paths; atomic same-fs rename;
+  conditional side effects verified; G6/G12 hold). MERGED. 8/17.
+- T9 now unblocked (G2+T7a); dispatching in parallel with T4b.
