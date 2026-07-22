@@ -37,3 +37,4 @@ target/
 
 # Internal planning/design artifacts (kept local, never shipped)
 tasks/
+.syncfu/skills/
