@@ -1,11 +1,13 @@
 import { test, expect } from "@playwright/test";
 
-// T13 under-notch acceptance: on a real notched display the island renders as a
+// T13/T14 under-notch acceptance: on a real notched display the island renders as a
 // SECOND NOTCH directly below the physical cutout, so ALL of its content (compact
-// pill AND expanded card) sits fully BELOW the cutout, never behind it. The harness
-// overlays a black rectangle at the exact cutout position (G1's 183x32) ABOVE the
-// pill; this spec reuses the wall-audit leaf-measurement technique to assert NO
-// content leaf inside .di-content intersects that cutout rectangle.
+// pill AND expanded card) sits fully BELOW the cutout, never behind it. While collapsed
+// and not hovered the pill is concealed and a minimal AMBIENT WINGS indicator shows in
+// its place (T14): slim black wings peek beside the cutout with a priority-accent hint in
+// the RIGHT wing, and NOTHING sits behind the cutout. The harness overlays a black
+// rectangle at the exact cutout position (G1's 183x32) ABOVE the island; this spec reuses
+// the wall-audit leaf-measurement technique to assert no content intersects that rectangle.
 // Defaults to the shared 1420 harness server; overridable so this worktree can be
 // served on its own port while another dev session holds 1420 (no port fight).
 const PORT = process.env.HARNESS_PORT ?? "1420";
@@ -51,8 +53,33 @@ async function cutoutRect(page: import("@playwright/test").Page, cellId: string)
 
 test.beforeEach(async ({ page }) => {
   await page.goto(URL);
+  await page.locator('#cell-ambient [data-testid="island-ambient"]').waitFor();
   await page.locator("#cell-compact .di-compact").waitFor();
   await page.locator("#cell-expanded .di-expanded").waitFor();
+});
+
+test("ambient wings peek beside the cutout; the accent dot sits clear in the right wing (T14)", async ({
+  page,
+}) => {
+  const cutout = await cutoutRect(page, "cell-ambient");
+  const ambient = await page
+    .locator('#cell-ambient [data-testid="island-ambient"]')
+    .boundingBox();
+  if (!ambient) throw new Error("no ambient box");
+  // The wings extend the black shape past the cutout on BOTH sides (slim extensions peek out).
+  expect(ambient.x).toBeLessThan(cutout.x);
+  expect(ambient.x + ambient.width).toBeGreaterThan(cutout.x + cutout.width);
+  // Flush at the top edge (butted against the cutout, reads as one notch band).
+  expect(Math.abs(ambient.y - cutout.y)).toBeLessThan(1);
+
+  // The accent dot is the ONLY hint, and it lives fully in the RIGHT wing - clear of the cutout,
+  // never behind it (T12 taught us content behind the cutout is invisible).
+  const dot = await page
+    .locator('#cell-ambient [data-testid="island-ambient-dot"]')
+    .boundingBox();
+  if (!dot) throw new Error("no ambient dot box");
+  expect(intersects(dot, cutout)).toBe(false);
+  expect(dot.x).toBeGreaterThanOrEqual(cutout.x + cutout.width - 0.5);
 });
 
 test("compact content clears the cutout (whole pill sits below it)", async ({

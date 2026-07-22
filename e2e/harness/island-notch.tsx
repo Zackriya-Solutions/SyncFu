@@ -1,8 +1,11 @@
-// T13 under-notch harness: the REAL Island in notch mode with the G1 hardware
+// T13/T14 under-notch harness: the REAL Island in notch mode with the G1 hardware
 // cutout geometry (183 x 32), plus a black rectangle overlaying the exact cutout
-// position. The island renders as a second notch offset BELOW the cutout, so the
-// spec proves NO compact/expanded content leaf renders underneath that rectangle
-// (the leaf-measurement wall-audit technique) - the whole pill sits below the notch.
+// position. Cells cover the three under-notch render states: the AMBIENT wings
+// indicator (collapsed + not hovered, T14) whose accent hint peeks in the right
+// wing beside the cutout; the hover-REVEALED compact pill offset BELOW the cutout;
+// and the expanded card below the cutout. The spec proves the pill/card content
+// never renders behind the cutout, and the ambient hint never hides behind it
+// either (the leaf-measurement wall-audit technique).
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { Island } from "@/components/island/Island";
@@ -35,22 +38,35 @@ function base(overrides: Partial<NotificationPayload>): NotificationPayload {
 interface Cell {
   readonly id: string;
   readonly state: "compact" | "expanded";
+  /** Mirrors the backend `island:reveal` signal: true == hovering, so the pill is revealed;
+   *  false == collapsed and not hovered, so the ambient wings indicator shows (T14). */
+  readonly notchHover: boolean;
   readonly notification: NotificationPayload;
 }
 
 const CELLS: readonly Cell[] = [
-  // Compact WITH progress -> the trailing live-activity is present (its ~50px is
-  // the widest thing that must clear the cutout on the right wing).
+  // Ambient (collapsed, NOT hovered) -> the minimal wings indicator with a priority-accent DOT in
+  // the right wing peeking beside the cutout; no content behind the cutout (T14). High priority so
+  // the accent color is unambiguous.
+  {
+    id: "ambient",
+    state: "compact",
+    notchHover: false,
+    notification: base({ sender: "claude-code", priority: "high" }),
+  },
+  // Compact + hovering -> the REVEALED pill. WITH progress the trailing live-activity is present
+  // (its ~50px is the widest content that must clear the cutout below it).
   {
     id: "compact",
     state: "compact",
+    notchHover: true,
     notification: base({
       sender: "claude-code · building",
       progress: { value: 0.62, style: "bar" },
     }),
   },
   // Expanded -> the icon/title/body row must start BELOW the 32pt cutout.
-  { id: "expanded", state: "expanded", notification: base({}) },
+  { id: "expanded", state: "expanded", notchHover: true, notification: base({}) },
 ];
 
 const root = document.getElementById("root")!;
@@ -86,6 +102,7 @@ for (const c of CELLS) {
         state={c.state}
         mode="notch"
         notchGeometry={G1}
+        notchHover={c.notchHover}
       />
     </React.StrictMode>
   );

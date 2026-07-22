@@ -74,9 +74,10 @@ pub struct IslandPosition {
     pub y: f64,
 }
 
-/// Physical notch cutout geometry surfaced to the island webview (BUG A). Logical points == CSS px
-/// on macOS, so the frontend uses these directly to keep compact content in the visible wings beside
-/// the cutout. `None` on non-notch / non-macOS (float capsule); serialized camelCase for the TS mirror.
+/// Physical notch cutout geometry surfaced to the island webview (T13/T14). Logical points == CSS px
+/// on macOS, so the frontend uses these directly to render the under-notch pill (offset below the
+/// cutout) and, while collapsed, the ambient wings indicator that flanks the cutout. `None` on
+/// non-notch / non-macOS (float capsule); serialized camelCase for the TS mirror.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NotchGeometryDto {
@@ -351,9 +352,9 @@ pub fn reflow_island(app: &AppHandle) {
     let inner = app.clone();
     let _ = handle.run_on_main_thread(move || {
         reposition_island_on_main(&inner);
-        // Push the current notch geometry to the island webview (BUG A) so a monitor/display change
-        // reflows the wing-aware compact layout. Already on the main thread here. Emits `None`
-        // (null) on non-notch displays; the frontend keeps the float layout then.
+        // Push the current notch geometry to the island webview (T13/T14) so a monitor/display change
+        // reflows the under-notch pill + ambient wings indicator. Already on the main thread here.
+        // Emits `None` (null) on non-notch displays; the frontend keeps the float layout then.
         #[cfg(target_os = "macos")]
         {
             let dto = read_notch_geometry_on_main();
@@ -560,9 +561,10 @@ fn reposition_island_on_main(app: &AppHandle) {
                 pos.x, pos.y,
             )));
         }
-        // Publish the physical-notch hover region for the reveal (T13). Enabled ONLY in notch mode
-        // with a real cutout; float / non-notch clears it so the reveal is inert (the pill stays
-        // visible there). The window is centered, so the region is centered on the fixed envelope.
+        // Publish the physical-notch hover region for the reveal (T13/T14). Enabled ONLY in notch
+        // mode with a real cutout; float / non-notch clears it so the reveal is inert (the pill
+        // stays visible there). The window is centered, so the region is centered on the fixed
+        // envelope, and it spans the ambient wings that flank the cutout (hover them to reveal).
         update_notch_region_on_main(settings.mode);
     }
 }
@@ -579,6 +581,7 @@ fn update_notch_region_on_main(mode: Mode) {
                     IslandEnvelope::FIXED.width,
                     g.width_logical,
                     g.height_logical,
+                    crate::overlay::hover::AMBIENT_WING,
                     crate::overlay::hover::NOTCH_MARGIN,
                 )
             })

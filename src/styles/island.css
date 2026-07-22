@@ -147,6 +147,81 @@
   }
 }
 
+/* ---- Ambient wings indicator (T14) --------------------------------------- *
+ * While the single island is COLLAPSED and the notch is NOT hovered, the pill is
+ * concealed and this minimal indicator shows in its place (Island.tsx renders it
+ * as a sibling of the pill wrapper). It is a static black shape sized like T12's
+ * wing pill - the cutout width plus one wing on each side (`--di-wing`), exactly
+ * the cutout height, flush at the screen top - so slim black extensions peek out
+ * beside the physical (opaque) notch. Its center strip sits BEHIND the real cutout
+ * and holds nothing; the only content is a small priority-accent hint in the RIGHT
+ * wing (a dot, or a tiny progress ring). It is absolutely positioned so it overlays
+ * the notch independently of the pill's slide transform, and it CROSS-FADES with
+ * the pill on the same CSS transitions (the wings fade as the pill slides down),
+ * so revealing reads as the wings growing into the pill - no new animation system.
+ * Purely decorative: pointer-events are off (the backend cursor tracker owns the
+ * hover detection, its region spans these wings). */
+.di-ambient {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #000000;
+  border-radius: 0 0 11px 11px;
+  opacity: 0;
+  pointer-events: none;
+  filter: drop-shadow(0 6px 16px rgba(0, 0, 0, 0.5));
+}
+.di-ambient[data-visible="true"] {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .di-ambient {
+    transition: opacity 200ms ease;
+  }
+}
+
+/* The accent hint pinned to the horizontal center of the RIGHT wing (half a wing
+ * in from the shape's right edge), vertically centered. Color is the PRIORITY
+ * accent (`--acc`, resolved from `data-priority` below), a glanceable severity cue. */
+.di-ambient-dot {
+  position: absolute;
+  top: 50%;
+  right: calc(var(--di-wing, 24px) / 2);
+  transform: translate(50%, -50%);
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--acc);
+  box-shadow: 0 0 8px -1px var(--acc);
+}
+.di-ambient-ring {
+  position: absolute;
+  top: 50%;
+  right: calc(var(--di-wing, 24px) / 2);
+  transform: translate(50%, -50%);
+  width: 15px;
+  height: 15px;
+}
+.di-ambient-ring circle {
+  fill: none;
+  stroke-width: 3;
+}
+.di-ambient-track {
+  stroke: rgba(255, 255, 255, 0.2);
+}
+.di-ambient-fill {
+  stroke: var(--acc);
+  stroke-linecap: round;
+  transform: rotate(-90deg);
+  transform-origin: 50% 50%;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .di-ambient-fill {
+    transition: stroke-dashoffset 250ms ease;
+  }
+}
+
 /* ---- Compact pill -------------------------------------------------------- */
 .di-compact {
   display: flex;
@@ -512,26 +587,32 @@
    out and color what the snapshot hands over.
    ========================================================================== */
 
-/* Priority accent for grouped rows + spotlight (mockup PRIO hexes). A per-row
-   accent is derived purely from `data-priority`, so no JS color map is needed. */
+/* Priority accent for grouped rows + spotlight (mockup PRIO hexes) AND the T14
+   ambient wings hint. A per-element accent is derived purely from `data-priority`,
+   so no JS color map is needed. */
 .di-lrow,
-.di-spot {
+.di-spot,
+.di-ambient {
   --acc: var(--di-accent, #4a9eff);
 }
 .di-lrow[data-priority="low"],
-.di-spot[data-priority="low"] {
+.di-spot[data-priority="low"],
+.di-ambient[data-priority="low"] {
   --acc: #2ed573;
 }
 .di-lrow[data-priority="normal"],
-.di-spot[data-priority="normal"] {
+.di-spot[data-priority="normal"],
+.di-ambient[data-priority="normal"] {
   --acc: #4a9eff;
 }
 .di-lrow[data-priority="high"],
-.di-spot[data-priority="high"] {
+.di-spot[data-priority="high"],
+.di-ambient[data-priority="high"] {
   --acc: #ffa502;
 }
 .di-lrow[data-priority="critical"],
-.di-spot[data-priority="critical"] {
+.di-spot[data-priority="critical"],
+.di-ambient[data-priority="critical"] {
   --acc: #ff3b30;
 }
 

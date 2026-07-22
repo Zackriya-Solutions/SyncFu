@@ -56,11 +56,29 @@ export function effectiveIslandSettings(
   };
 }
 
+/** Half-width (CSS px) of ONE ambient wing that flanks the physical cutout while the collapsed pill
+ *  is concealed (T14). The ambient shape is `cutoutWidth + 2 * AMBIENT_WING` wide and `cutoutHeight`
+ *  tall, flush at the screen top, so slim black extensions peek out beside the physical notch. MUST
+ *  stay in sync with the backend `AMBIENT_WING` in `src-tauri/src/overlay/hover.rs`, which sizes the
+ *  matching hover region so hovering the visible wings triggers the reveal. */
+export const AMBIENT_WING = 24;
+
+/** Ambient wings indicator size (T14): the black shape is the cutout width plus one wing on each
+ *  side, and exactly the cutout height (flush at the screen top). Pure + unit-testable. */
+export function ambientWingsSize(
+  geo: NotchGeometry,
+  wing: number = AMBIENT_WING
+): { readonly width: number; readonly height: number } {
+  return { width: geo.widthLogical + 2 * wing, height: geo.heightLogical };
+}
+
 /** Whether the under-notch pill should be VISIBLE (revealed) right now (T13 hover-reveal). In notch
- *  mode the COLLAPSED pill is concealed until the physical notch is hovered (`notchHover`, the backend
- *  `island:reveal` signal); an EXPANDED island - a fresh arrival announcing, a decision, or a manual
- *  expand - is always visible and never auto-conceals on cursor exit; float / non-notch (`underNotch`
- *  false) always shows the pill (no reveal semantics off the built-in notched panel). */
+ *  mode the COLLAPSED pill is concealed until the physical notch (or the ambient wings that flank it)
+ *  is hovered (`notchHover`, the backend `island:reveal` signal); an EXPANDED island - a fresh arrival
+ *  announcing, a decision, or a manual expand - is always visible and never auto-conceals on cursor
+ *  exit; float / non-notch (`underNotch` false) always shows the pill (no reveal semantics off the
+ *  built-in notched panel). When this is false in notch mode the pill is not hidden outright: the
+ *  frontend shows the ambient wings indicator in its place (see `shouldShowAmbient`). */
 export function shouldReveal(
   underNotch: boolean,
   expanded: boolean,
@@ -68,6 +86,19 @@ export function shouldReveal(
 ): boolean {
   if (!underNotch) return true;
   return expanded || notchHover;
+}
+
+/** Whether to show the minimal AMBIENT WINGS indicator (T14) instead of the pill. This is the
+ *  collapsed-and-not-hovered under-notch case - the at-a-glance "something is happening" signal
+ *  (slim black wings beside the notch + a priority accent dot / progress ring). It is exactly the
+ *  under-notch complement of `shouldReveal`: shown iff we are under-notch AND the pill is concealed.
+ *  Float / non-notch never shows it (the pill is always visible there). */
+export function shouldShowAmbient(
+  underNotch: boolean,
+  expanded: boolean,
+  notchHover: boolean
+): boolean {
+  return underNotch && !shouldReveal(underNotch, expanded, notchHover);
 }
 
 /** Surface inputs the appearance/position layer (T8) feeds the controller:
