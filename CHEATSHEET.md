@@ -53,10 +53,32 @@ syncfu send --presentation island -t "Approve?" \
   --wait --wait-timeout 120 "Merge PR #42?"
 # exit: 0=action, 1=dismissed, 2=timeout
 
+# Ambient progress on the notch: while collapsed and idle the island shows the
+# wings beside the cutout with a mini ring; hover the notch to reveal, click to
+# expand. Use --timeout never so the ambient pill is not auto-dismissed mid-task.
+syncfu send --presentation island -t "Sync" --timeout never \
+  --progress 0.4 --progress-label "40%" "Indexing files..."
+
 # Geometry/position/appearance are app settings, not payload fields; the payload
 # only carries the 27 style overrides. Capture exclusion (hideFromScreenCapture)
 # is guaranteed on macOS <= 14 and Windows build 19041+, best-effort on macOS 15+,
-# and unsupported on Linux. See the README Dynamic Island section.
+# and unsupported on Linux. See docs/island.md for the full reference.
+```
+
+### dismiss / clear (island)
+
+```bash
+# Dismiss one island notification by id (same as hovering the card's x).
+syncfu dismiss <id>
+
+# "Clear all" (the list header button) maps to dismiss-all. It clears every
+# active notification - island AND the top-right cards - and resolves every
+# --wait waiter as dismissed (exit 1). Deliberate global clear.
+syncfu dismiss-all
+
+# In the UI: hover the expanded card for its x (the only way to dismiss a
+# critical no-action notification), or hover a row in the multi-notification
+# list for its per-row x.
 ```
 
 ## actions + callbacks

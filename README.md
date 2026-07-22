@@ -625,7 +625,37 @@ syncfu send -t "Fancy" --font "Space Grotesk" "With a custom font"
 
 The **Dynamic Island** is a second notification presentation: a pure-black capsule anchored top-center that spring-morphs between a compact pill and an expanded card. It is additive - the top-right glass card stays the default, and you opt in per notification. On a MacBook it hugs the physical notch; on non-notch Macs, Windows, and Linux it renders as a floating capsule.
 
-It suits glanceable, ambient status for long agent tasks (timers, progress, approvals), and it can be hidden from screen recording and screen sharing so private notifications do not leak on a live capture (see the [support matrix](#screen-capture-support-matrix) for the exact per-OS guarantee).
+It suits glanceable, ambient status for long agent tasks (timers, progress, approvals), and it can be hidden from screen recording and screen sharing so private notifications do not leak on a live capture (see the [support matrix](#screen-capture-support-matrix) for the exact per-OS guarantee). For the full reference (every setting, the payload field, troubleshooting), see [`docs/island.md`](docs/island.md).
+
+### Interaction model
+
+In notch mode the island moves through four states, where the count is the number of active island notifications:
+
+```
+   count 0            count >= 1, idle          hover the notch/wings        click the pill
+  +--------+         +-------------------+       +--------------------+      +-----------------+
+  | hidden |  --->   |   ambient wings   | --->  | revealed pill      | ---> | expanded card   |
+  | window |         | slim black stubs  |       | slides down under  |      | full content,   |
+  | hidden | <---    | beside the cutout |<----  | the cutout with the|<---- | actions, x, bar |
+  +--------+  count  | + accent dot or   | leave | collapsed content  | click| (click surface  |
+              back 0 | mini progress ring|  +grace                     | card |  to collapse)   |
+                     +-------------------+       +--------------------+      +-----------------+
+```
+
+1. **Hidden** (count 0): the island window is hidden entirely.
+2. **Ambient wings** (collapsed, idle): the under-notch pill is concealed and two slim black extensions peek out beside the physical cutout, flush at the screen top. The right wing carries a priority-accent dot, or a mini progress ring when the notification carries progress. The wings are the ambient signal - there is no glyph or label.
+3. **Revealed pill** (hover): hovering the physical notch or its wings slides a second notch-shaped pill down beneath the cutout with the collapsed content. Leaving conceals it back to the wings after a short grace.
+4. **Expanded card** (click / arrival): the full card. Click the revealed pill to expand; click the card surface (anywhere that is not a button) to collapse.
+
+A fresh notification arrives EXPANDED, holds ~2.6s, then auto-collapses to the pill. A **decision** (a notification carrying actions, i.e. a pending `--wait`) and any **critical** notification stay expanded and never auto-collapse. The window is a click-through envelope: clicks pass to the apps underneath except over the drawn pill or card. Float / non-notch mode skips the ambient-wings and hover-reveal steps - the pill is always visible and expands on click.
+
+### Dismissal
+
+- **Expanded card x**: hover the expanded card to reveal a close x. This is also the only way to dismiss a **critical no-action** notification (it never auto-dismisses and has no action buttons).
+- **Per-row x** (multi-notification list): each row has a hover-visible x that dismisses just that row.
+- **"Clear all"** (multi-notification list header): empties the island in one click. Note: it calls `dismiss-all`, which also clears any top-right **card** notifications and resolves every waiter as dismissed. It is a deliberate global clear.
+
+All three resolve the same waiter path a dismissed card uses (CLI `--wait` exit 1).
 
 ### Sending to the island
 
@@ -660,12 +690,16 @@ A `--wait` decision on the island arrives expanded and stays expanded until you 
 
 ### Notch vs float
 
-- **Notch mode** (default): the capsule hugs the top-center notch. On a MacBook the compact pill stays pure black even in light appearance so it blends with the physical notch. `position` is ignored in notch mode.
-- **Float mode**: a fully-rounded floating capsule you can place `left`, `center`, `right`, or `bottom-center` (`bottom-center` is float-only and expands upward). Non-notch Macs, Windows, and Linux always float.
+- **Notch mode** (default): the capsule hugs the top-center notch. The compact pill is sized and positioned from the real measured cutout - its width matches the physical cutout so it reads as an extension of the notch, and the island is offset down by the cutout height so content sits below the notch, never behind it. The pill stays pure black even in light appearance so it blends with the physical notch. `position` is ignored in notch mode.
+- **Float mode**: a fully-rounded floating capsule you can place `left`, `center`, `right`, or `bottom-center` (`bottom-center` is float-only and expands upward). Non-notch Macs, Windows, and Linux always float; float layout is unchanged by the notch adaptation.
 
 ### Multiple notifications
 
 When more than one island notification is active, the compact pill shows the highest-priority **spotlight** item plus an `xN` count badge (capped at `9+`). Expanding reveals a priority-ranked, deduped list (critical first) capped at 6 rows before it scrolls. Auto-dismiss is paused while the list is open. Notifications with a pending `--wait` are exempt from de-duplication so each keeps its own exit code.
+
+### Single instance
+
+Only one syncfu app runs at a time. A second launch is terminated immediately and the first instance's main window comes to the front (shown, focused, unminimized). This prevents a duplicate from squatting beside the first with a dead HTTP bind on `:9868`.
 
 ### Island settings
 
