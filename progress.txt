@@ -380,3 +380,9 @@ Worktrees preserved: t5b, t6, t10, t11 (earlier 13 removed on user instruction).
   end-to-end resend-merges A4 assertion, harmless double hitbox report on expand. Also on record:
   pre-existing subscribe-vs-check microsecond race sends synthetic Dismissed (predates T19,
   documented). Iteration 8 closed pending user re-run.
+- T20 REVIEW: CLEAN. Reviewer independently recomputed the 2x case and REPRODUCED the old failure
+  mode (stale scale mid-move -> rel=-135 -> unhittable; correct=300), confirming the stored-origin
+  fix targets the true root cause. Geometry-event and stay-put paths verified. 2 informational:
+  display-unplug stale origin (pre-existing, consistent with stay-put, re-places on next arrival);
+  one stale doc comment nit. Iteration 9 closed pending user round-3 reproduction + the style-issue
+  clarification (image 23, docs/island.md view - awaiting user's words).
