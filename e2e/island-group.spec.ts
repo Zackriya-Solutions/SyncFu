@@ -96,6 +96,40 @@ test("Models A and C are absent (guard G11)", async ({ page }) => {
   await expect(page.locator(".stack-host")).toHaveCount(0);
 });
 
+// T18 inline row expansion: a multi-action row reveals ALL its actions (wrap row,
+// primary/secondary/danger anatomy) plus its body when its row body is clicked,
+// while the 560px list cap is unaffected (the scroll container absorbs growth).
+test("a multi-action row expands inline to reveal all its actions", async ({
+  page,
+}) => {
+  await page.locator("#cell-expand .di-spot").click();
+  await settle(page);
+
+  const body = page.locator("#cell-expand .di-lrow-body[aria-expanded]").first();
+  await expect(body).toHaveAttribute("aria-expanded", "false");
+  // Compact: no expansion, only the single compact action button on the row.
+  await expect(page.locator("#cell-expand .di-lrow-expand")).toHaveCount(0);
+
+  await body.click();
+  await settle(page);
+  await expect(body).toHaveAttribute("aria-expanded", "true");
+
+  const expand = page.locator("#cell-expand .di-lrow-expand");
+  await expect(expand).toHaveCount(1);
+  // All three actions are reachable, styled by the shared action-button anatomy.
+  const actions = page.locator("#cell-expand [data-testid='island-row-expand-action']");
+  await expect(actions).toHaveCount(3);
+  await expect(actions.nth(0)).toHaveText("Open Docs");
+  await expect(actions.nth(2)).toHaveClass(/danger/);
+  // The message body is shown in the expansion.
+  await expect(expand.locator(".di-lrow-msg")).toBeVisible();
+  // The island frame still honors the 560px ceiling with a row expanded.
+  const islandH = await page
+    .locator("#cell-expand .di-island")
+    .evaluate((el) => (el as HTMLElement).getBoundingClientRect().height);
+  expect(islandH).toBeLessThanOrEqual(560);
+});
+
 // T15 dismissal affordances: the list header carries a persistent "Clear all"
 // beside the count, and every row carries a secondary per-row close (hidden at
 // rest, revealed on row hover) alongside its primary action button.

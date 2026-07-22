@@ -249,6 +249,27 @@ pub fn hide_panel(app: &AppHandle) {
 /// current cursor position. Falls back to None if cursor position
 /// can't be determined or no monitor matches.
 pub(crate) fn get_cursor_monitor_info(app: &AppHandle) -> Option<MonitorInfo> {
+    match cursor_monitor_info(app) {
+        Some(info) => {
+            info!(
+                "Cursor is on monitor at ({}, {}), size {}x{}",
+                info.x, info.y, info.width, info.height
+            );
+            Some(info)
+        }
+        None => {
+            info!("Cursor - no matching monitor found");
+            None
+        }
+    }
+}
+
+/// The cursor's monitor, WITHOUT logging - for hot-path callers. The island cursor
+/// tracker (`overlay::hover`) polls at ~10Hz to follow the cursor's display, so the
+/// per-call log in `get_cursor_monitor_info` would flood the log while an island is
+/// visible. Same selection logic; `None` when the cursor or a containing monitor
+/// can't be resolved.
+pub(crate) fn cursor_monitor_info(app: &AppHandle) -> Option<MonitorInfo> {
     let cursor_pos = get_cursor_position()?;
     let monitors = app.available_monitors().ok()?;
 
@@ -264,15 +285,10 @@ pub(crate) fn get_cursor_monitor_info(app: &AppHandle) -> Option<MonitorInfo> {
         };
 
         if cursor_in_monitor_logical(cursor_pos, info) {
-            info!(
-                "Cursor at ({}, {}) is on monitor at ({}, {}), size {}x{}",
-                cursor_pos.0, cursor_pos.1, pos.x, pos.y, size.width, size.height
-            );
             return Some(info);
         }
     }
 
-    info!("Cursor at ({}, {}) - no matching monitor found", cursor_pos.0, cursor_pos.1);
     None
 }
 

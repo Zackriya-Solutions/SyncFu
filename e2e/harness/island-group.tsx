@@ -63,6 +63,26 @@ interface Fixture {
   readonly snapshot: IslandSnapshot;
 }
 
+// A --wait row carrying multiple actions (T18): the compact row shows only the
+// primary, so the rest are reachable only via the inline expansion.
+const MULTI_ACTION_ROWS: IslandRow[] = [
+  row({
+    id: "wait",
+    sender: "release-bot",
+    title: "docs ready to publish",
+    priority: "high",
+    icon: "rocket",
+    body: "The v2 docs build finished. Publish now or star the repo?",
+    hasWaiter: true,
+    actions: [
+      { id: "open", label: "Open Docs", style: "primary" },
+      { id: "star", label: "Star on GitHub", style: "secondary" },
+      { id: "skip", label: "Skip", style: "danger" },
+    ],
+  }),
+  row({ id: "n1", sender: "github", title: "review requested on #482", priority: "normal" }),
+];
+
 const FIXTURES: readonly Fixture[] = [
   // Compact spotlight badge widths: 2 (26px), 10 -> "9+" (34px), 100 -> "9+".
   { id: "compact-2", snapshot: snapshot([SPOT, row({ id: "b" })], 2) },
@@ -70,6 +90,8 @@ const FIXTURES: readonly Fixture[] = [
   { id: "compact-100", snapshot: snapshot([SPOT, row({ id: "b" })], 100) },
   // Expanded ranked list (the spec expands this cell before shooting).
   { id: "list", snapshot: snapshot(LIST_ROWS, 8) },
+  // Multi-action expansion (T18): the spec expands the list, then the wait row.
+  { id: "expand", snapshot: snapshot(MULTI_ACTION_ROWS, 2) },
 ];
 
 const noop = () => {};
@@ -84,6 +106,7 @@ for (const fx of FIXTURES) {
       <IslandGroup
         snapshot={fx.snapshot}
         onRowAction={noop}
+        onRowActionId={noop}
         onDismiss={noop}
         onClearAll={noop}
       />

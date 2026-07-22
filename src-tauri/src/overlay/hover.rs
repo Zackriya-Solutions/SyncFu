@@ -37,8 +37,8 @@ use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Emitter, Manager};
 
-use super::island::{set_island_interactive, ISLAND_LABEL};
-use super::panel::get_cursor_position;
+use super::island::{reflow_island, set_island_interactive, ISLAND_LABEL};
+use super::panel::{cursor_monitor_info, get_cursor_position, MonitorInfo};
 
 /// Poll interval (~10Hz). Cheap while notifications exist; never runs while the island is hidden.
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
@@ -91,6 +91,26 @@ static INTERACTIVE: AtomicBool = AtomicBool::new(false);
 /// The reveal state machine (notch mode). Starts concealed; a fresh arrival announces EXPANDED, which
 /// the frontend keeps visible regardless of this flag, so a concealed start never hides an arrival.
 static REVEAL: Mutex<RevealMachine> = Mutex::new(RevealMachine::CONCEALED);
+/// The monitor the cursor was last observed on, for display-follow (T18). `None` before the first
+/// observation of a show (seeded on the first tick, which never repositions since the show already
+/// placed the island). Reset on `stop_tracking` so each show re-seeds cleanly.
+static CURSOR_MONITOR: Mutex<Option<MonitorKey>> = Mutex::new(None);
+
+/// A stable identity for a monitor: its rounded logical-ish bounds (origin + size in the raw
+/// physical values `MonitorInfo` carries). Two ticks on the same physical display yield identical
+/// API values, so exact equality is a reliable same-display test; a different display differs in at
+/// least one bound. Rounded to integers so the `PartialEq` is on whole pixels, not raw floats.
+pub type MonitorKey = (i64, i64, i64, i64);
+
+/// Derive the stable identity key of a monitor.
+fn monitor_key(m: MonitorInfo) -> MonitorKey {
+    (
+        m.x.round() as i64,
+        m.y.round() as i64,
+        m.width.round() as i64,
+        m.height.round() as i64,
+    )
+}
 
 /// Reveal state: whether the pill is currently revealed, plus a pending conceal deadline once the
 /// cursor has left the hot zone (the notch region ∪ the pill).
@@ -179,6 +199,30 @@ pub fn reveal_step(m: RevealMachine, in_hot: bool, now: Instant, grace: Duration
     }
 }
 
+/// Pure display-follow edge detector (T18). Given the previously tracked monitor and the cursor's
+/// CURRENT monitor, decide the next tracked value and whether a reposition is due. Rules:
+/// - a `None` current (cursor read failed, or the cursor is momentarily in a gap between monitors)
+///   is INERT: it never repositions and never clears the tracked monitor, so a transient dropout at
+///   a display boundary cannot cause a reposition storm (the hysteresis);
+/// - the FIRST observation (`prev == None`) only seeds the tracked monitor - the show already placed
+///   the island, so re-placing on the seeding tick would be redundant;
+/// - the same monitor short-circuits (the common every-tick case): no reposition;
+/// - only a Some -> different-Some change repositions.
+/// Deterministic in its inputs, so the whole policy is unit-testable without a real display.
+pub fn monitor_change_step(
+    prev: Option<MonitorKey>,
+    current: Option<MonitorKey>,
+) -> (Option<MonitorKey>, bool) {
+    match current {
+        None => (prev, false),
+        Some(cur) => match prev {
+            None => (Some(cur), false),
+            Some(p) if p == cur => (Some(p), false),
+            Some(_) => (Some(cur), true),
+        },
+    }
+}
+
 /// Store the latest shape hitbox reported by the frontend. Replaces any previous value.
 pub fn set_hitbox(hb: Hitbox) {
     if let Ok(mut guard) = HITBOX.lock() {
@@ -222,6 +266,11 @@ pub fn stop_tracking(app: &AppHandle) {
     if let Ok(mut guard) = REVEAL.lock() {
         *guard = RevealMachine::CONCEALED;
     }
+    // Forget the tracked monitor so the next show re-seeds from its own first tick (T18): the show
+    // path already places the island, so a stale key must not trigger a spurious reflow.
+    if let Ok(mut guard) = CURSOR_MONITOR.lock() {
+        *guard = None;
+    }
 }
 
 /// Read the cursor in window-relative LOGICAL px (the T13 convention), or `None` if any input is
@@ -234,8 +283,9 @@ fn cursor_window_relative(app: &AppHandle) -> Option<(f64, f64)> {
     window_relative(cursor, (origin.x as f64, origin.y as f64), scale)
 }
 
-/// One poll step: read the cursor once, then (1) toggle interactivity when the cursor enters/leaves
-/// the pill hitbox, and (2) drive the reveal machine from the notch region ∪ pill hot zone.
+/// One poll step: read the cursor, then (1) toggle interactivity when the cursor enters/leaves the
+/// pill hitbox, (2) drive the reveal machine from the notch region ∪ pill hot zone, and (3) follow
+/// the cursor's display, repositioning a visible island only when its monitor actually changes (T18).
 fn tick(app: &AppHandle) {
     let rel = match cursor_window_relative(app) {
         Some(p) => p,
@@ -265,6 +315,23 @@ fn tick(app: &AppHandle) {
         if next.revealed != prev.revealed {
             let _ = app.emit_to(ISLAND_LABEL, REVEAL_EVENT, next.revealed);
         }
+    }
+
+    // (3) Display-follow (T18): if the cursor moved to a DIFFERENT monitor while the island is
+    // visible, re-run the placement so a SHOWING island follows to the new display live (reflow
+    // re-emits `island:geometry` + moves the window), instead of only refreshing on the next show.
+    // Debounced to the monitor-CHANGE edge by `monitor_change_step`; a same-monitor tick or a
+    // transient cursor dropout is inert (no reposition storm at a boundary). `cursor_monitor_info`
+    // does a second cheap CGEvent read (the same off-main kind steps 1-2 above use) plus a monitor
+    // enumeration, gated to only run while the island is visible (R-PERF: nothing polls when hidden).
+    let current_monitor = cursor_monitor_info(app).map(monitor_key);
+    let prev_monitor = CURSOR_MONITOR.lock().ok().and_then(|g| *g);
+    let (next_monitor, changed) = monitor_change_step(prev_monitor, current_monitor);
+    if let Ok(mut guard) = CURSOR_MONITOR.lock() {
+        *guard = next_monitor;
+    }
+    if changed {
+        reflow_island(app);
     }
 }
 
@@ -433,6 +500,62 @@ mod tests {
         let back = reveal_step(armed, true, start + Duration::from_millis(100), REVEAL_GRACE);
         assert!(back.revealed);
         assert_eq!(back.deadline, None);
+    }
+
+    // --- Display-follow edge detection (T18): reposition only on a real monitor change ---
+    const MON_A: MonitorKey = (0, 0, 1512, 982);
+    const MON_B: MonitorKey = (1512, 0, 2560, 1440);
+
+    #[test]
+    fn first_observation_seeds_without_repositioning() {
+        // The show already placed the island; the seeding tick must not re-place it.
+        let (next, changed) = monitor_change_step(None, Some(MON_A));
+        assert_eq!(next, Some(MON_A));
+        assert!(!changed);
+    }
+
+    #[test]
+    fn same_monitor_short_circuits() {
+        // The common every-tick case: cursor sitting on one display -> no reposition, ever.
+        let (next, changed) = monitor_change_step(Some(MON_A), Some(MON_A));
+        assert_eq!(next, Some(MON_A));
+        assert!(!changed);
+    }
+
+    #[test]
+    fn genuine_change_repositions_once_then_settles() {
+        // A -> B repositions exactly once; staying on B does not repeat.
+        let (after_move, moved) = monitor_change_step(Some(MON_A), Some(MON_B));
+        assert_eq!(after_move, Some(MON_B));
+        assert!(moved);
+        let (settled, again) = monitor_change_step(after_move, Some(MON_B));
+        assert_eq!(settled, Some(MON_B));
+        assert!(!again);
+    }
+
+    #[test]
+    fn transient_dropout_at_a_boundary_never_repositions() {
+        // Cursor momentarily resolves to no monitor (a gap / failed read) between two reads of the
+        // SAME display: the None is inert (keeps the tracked key), and re-acquiring the same monitor
+        // does not reposition. This is the hysteresis against a reposition storm at a boundary.
+        let start = Some(MON_A);
+        let (after_none, changed_none) = monitor_change_step(start, None);
+        assert_eq!(after_none, Some(MON_A));
+        assert!(!changed_none);
+        let (after_reacquire, changed_reacquire) = monitor_change_step(after_none, Some(MON_A));
+        assert_eq!(after_reacquire, Some(MON_A));
+        assert!(!changed_reacquire);
+    }
+
+    #[test]
+    fn dropout_does_not_lose_a_pending_real_change() {
+        // A, then a dropout, then B: the dropout keeps A tracked, so the A -> B change is still
+        // detected when B is acquired (the transient None neither repositions nor swallows the edge).
+        let (held, changed_none) = monitor_change_step(Some(MON_A), None);
+        assert!(!changed_none);
+        let (moved_to_b, changed) = monitor_change_step(held, Some(MON_B));
+        assert_eq!(moved_to_b, Some(MON_B));
+        assert!(changed);
     }
 
     #[test]

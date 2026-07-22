@@ -256,6 +256,7 @@ export function IslandOverlay() {
         <IslandGroup
           snapshot={snapshot}
           onRowAction={handleRowAction}
+          onRowActionId={handleAction}
           onDismiss={handleDismiss}
           onClearAll={handleClearAll}
           notchGeometry={notchGeometry}

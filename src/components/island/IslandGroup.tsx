@@ -59,6 +59,10 @@ interface IslandGroupProps {
   /** Act on a row (primary action, else dismiss). Wired by IslandOverlay to the
    *  SAME action_callback / dismiss commands the card and single island use. */
   readonly onRowAction: (row: IslandRow) => void;
+  /** Fire a SPECIFIC action of a row (the inline expansion buttons, T18). Wired to
+   *  the SAME `action_callback` the card uses; resolves exactly that row's waiter
+   *  with that action id (A4). */
+  readonly onRowActionId: (id: string, actionId: string) => void;
   /** Dismiss a single notification by id (auto-dismiss + row dismiss). */
   readonly onDismiss: (id: string) => void;
   /** Clear every island notification (T15, the list "Clear all"). */
@@ -79,6 +83,7 @@ interface IslandGroupProps {
 export function IslandGroup({
   snapshot,
   onRowAction,
+  onRowActionId,
   onDismiss,
   onClearAll,
   appearance: appearanceProp,
@@ -231,6 +236,7 @@ export function IslandGroup({
             snapshot={snapshot}
             onCollapse={() => setExpanded(false)}
             onRowAction={onRowAction}
+            onRowActionId={onRowActionId}
             onRowDismiss={onDismiss}
             onClearAll={onClearAll}
           />
