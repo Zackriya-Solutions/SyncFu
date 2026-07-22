@@ -153,6 +153,11 @@ interface IslandProps {
    *  hovered shows the ambient wings instead, T14); an expanded island is always visible. Ignored in
    *  float / non-notch mode. Harness/tests pass it explicitly to pick the ambient vs revealed state. */
   readonly notchHover?: boolean;
+  /** Backend pill/card-hover signal (T17, `island:hover`): true while the cursor is over the visible
+   *  shape. PAUSES auto-dismiss while hovered, matching the card's JS hover-pause (the card polls the
+   *  cursor against its own rect; the island's click-through envelope makes DOM hover unreliable, so
+   *  the already-running backend tracker is the source). Default false. */
+  readonly hovered?: boolean;
   /** Settle report (BUG B): fires with the shape's window-relative bounds on every morph settle AND
    *  on each reveal slide settle, so the host can push the click-through hitbox to the backend. */
   readonly onSettle?: (rect: { x: number; y: number; w: number; h: number }) => void;
@@ -169,6 +174,7 @@ export const Island = forwardRef<IslandHandle, IslandProps>(function Island(
     onDismiss,
     notchGeometry = null,
     notchHover = false,
+    hovered = false,
     onSettle,
   },
   ref
@@ -359,10 +365,30 @@ export const Island = forwardRef<IslandHandle, IslandProps>(function Island(
   // invoke. Suppressed for decisions (auto-dismiss paused while awaiting an answer
   // - synthesis 1.1; a decision resolves via action/dismiss/CLI-timeout instead)
   // and for critical (autoDismissMs === null, never auto-dismisses).
+  //
+  // Hover-pause (T17, card parity): once the timeout elapses, DEFER the dismissal
+  // while the island is hovered - exactly what NotificationCard does (poll every
+  // HOVER_POLL_MS until the cursor leaves, then dismiss). `hovered` is read via a
+  // ref so a hover toggle never restarts the timer (matching the card, which reads
+  // live cursor state rather than re-running its effect).
+  const hoveredRef = useRef(hovered);
+  hoveredRef.current = hovered;
   useEffect(() => {
     if (controlled || isDecision || autoDismissMs === null || !onDismiss) return;
-    const id = setTimeout(() => onDismiss(notification.id), autoDismissMs);
-    return () => clearTimeout(id);
+    const HOVER_POLL_MS = 200;
+    let poll: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      if (hoveredRef.current) {
+        poll = setTimeout(tick, HOVER_POLL_MS);
+      } else {
+        onDismiss(notification.id);
+      }
+    };
+    const armed = setTimeout(tick, autoDismissMs);
+    return () => {
+      clearTimeout(armed);
+      clearTimeout(poll);
+    };
   }, [controlled, isDecision, autoDismissMs, onDismiss, notification.id]);
 
   const expanded = renderState === "expanded";

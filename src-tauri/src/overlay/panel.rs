@@ -255,33 +255,48 @@ pub(crate) fn get_cursor_monitor_info(app: &AppHandle) -> Option<MonitorInfo> {
     for monitor in monitors {
         let pos = monitor.position();
         let size = monitor.size();
+        let info = MonitorInfo {
+            x: pos.x as f64,
+            y: pos.y as f64,
+            width: size.width as f64,
+            height: size.height as f64,
+            scale_factor: monitor.scale_factor(),
+        };
 
-        let left = pos.x as f64;
-        let top = pos.y as f64;
-        let right = left + size.width as f64;
-        let bottom = top + size.height as f64;
-
-        if cursor_pos.0 >= left
-            && cursor_pos.0 < right
-            && cursor_pos.1 >= top
-            && cursor_pos.1 < bottom
-        {
+        if cursor_in_monitor_logical(cursor_pos, info) {
             info!(
                 "Cursor at ({}, {}) is on monitor at ({}, {}), size {}x{}",
                 cursor_pos.0, cursor_pos.1, pos.x, pos.y, size.width, size.height
             );
-            return Some(MonitorInfo {
-                x: pos.x as f64,
-                y: pos.y as f64,
-                width: size.width as f64,
-                height: size.height as f64,
-                scale_factor: monitor.scale_factor(),
-            });
+            return Some(info);
         }
     }
 
     info!("Cursor at ({}, {}) — no matching monitor found", cursor_pos.0, cursor_pos.1);
     None
+}
+
+/// Half-open containment test in LOGICAL points — the T13 coordinate convention (see
+/// `overlay/hover.rs`, empirically verified on real hardware). `cursor` is Quartz global DISPLAY
+/// POINTS (logical, top-left origin — what `get_cursor_position` returns via `CGEvent::location`),
+/// while `monitor.position()`/`size()` are PHYSICAL pixels; each monitor bound is divided by that
+/// monitor's own `scale_factor` to reach the same logical space before comparing.
+///
+/// The pre-T17 code compared the logical cursor against the raw physical bounds. On a Retina (2x)
+/// multi-display setup a monitor's physical width overlaps the LOGICAL origin of the display placed
+/// to its right (e.g. a 1470-logical / 2940-physical built-in overlaps a second display that starts
+/// at logical x=1470), so a cursor on the right-hand display was mis-selected onto the built-in and
+/// the overlay opened on the wrong screen. This also fixes the CARD's monitor-following on Retina.
+fn cursor_in_monitor_logical(cursor_logical: (f64, f64), m: MonitorInfo) -> bool {
+    let scale = if m.scale_factor > 0.0 { m.scale_factor } else { 1.0 };
+    let left = m.x / scale;
+    let top = m.y / scale;
+    let right = left + m.width / scale;
+    let bottom = top + m.height / scale;
+    cursor_logical.0 >= left
+        && cursor_logical.0 < right
+        && cursor_logical.1 >= top
+        && cursor_logical.1 < bottom
 }
 
 /// Get the current mouse cursor position in physical pixels.
@@ -431,6 +446,66 @@ mod tests {
         assert!(PANEL_WIDTH < 500.0, "Panel too wide");
         // Initial height is minimal — frontend resizes dynamically
         assert!(PANEL_INITIAL_HEIGHT <= 20.0, "Initial height should be tiny");
+    }
+
+    // --- Cursor->monitor selection in LOGICAL space (T17 fix for the T13-flagged latent bug) ---
+    //
+    // Fixtures encode the real dual-display Retina geometry the regression was reported on. The
+    // library reports `monitor.position()`/`size()` in PHYSICAL pixels (== logical * scale, the same
+    // convention hover.rs proved for `window.outer_position()`); the cursor from `CGEvent::location`
+    // is in GLOBAL LOGICAL points. The built-in is 1470 logical / 2940 physical @ 2x at the origin;
+    // an external sits to its RIGHT starting at global logical x=1470.
+
+    /// Built-in MacBook panel: 1470x956 logical, 2x -> physical 2940x1912 at the origin.
+    const BUILTIN: MonitorInfo = MonitorInfo {
+        x: 0.0,
+        y: 0.0,
+        width: 2940.0,
+        height: 1912.0,
+        scale_factor: 2.0,
+    };
+
+    /// External to the right, starting at global logical x=1470 -> physical origin 1470 @ 1x.
+    const EXTERNAL_1X: MonitorInfo = MonitorInfo {
+        x: 1470.0,
+        y: 0.0,
+        width: 2560.0,
+        height: 1440.0,
+        scale_factor: 1.0,
+    };
+
+    #[test]
+    fn cursor_on_external_is_not_claimed_by_the_retina_builtin() {
+        // A cursor at global logical (1500, 300) is on the EXTERNAL. The corrected logical test
+        // rejects the built-in (its logical right edge is 2940/2 = 1470, and 1500 >= 1470) and
+        // selects the external. The OLD physical test would have matched the built-in first
+        // (1500 < 2940 physical) and opened the overlay on the wrong screen.
+        assert!(!cursor_in_monitor_logical((1500.0, 300.0), BUILTIN));
+        assert!(cursor_in_monitor_logical((1500.0, 300.0), EXTERNAL_1X));
+    }
+
+    #[test]
+    fn cursor_on_builtin_selects_the_builtin() {
+        // A cursor at global logical (700, 300) is on the built-in; the external starts at 1470.
+        assert!(cursor_in_monitor_logical((700.0, 300.0), BUILTIN));
+        assert!(!cursor_in_monitor_logical((700.0, 300.0), EXTERNAL_1X));
+    }
+
+    #[test]
+    fn cursor_containment_is_half_open() {
+        // 1080p @ 1x: logical bounds [0,1920) x [0,1080). Origin inclusive, far/bottom edges
+        // exclusive so adjacent displays never both claim the seam.
+        let m = MonitorInfo { x: 0.0, y: 0.0, width: 1920.0, height: 1080.0, scale_factor: 1.0 };
+        assert!(cursor_in_monitor_logical((0.0, 0.0), m)); // top-left inclusive
+        assert!(!cursor_in_monitor_logical((1920.0, 100.0), m)); // right edge exclusive
+        assert!(!cursor_in_monitor_logical((100.0, 1080.0), m)); // bottom edge exclusive
+    }
+
+    #[test]
+    fn cursor_containment_degenerate_scale_does_not_divide_by_zero() {
+        // A non-positive scale (never expected) falls back to 1.0 rather than producing NaN bounds.
+        let m = MonitorInfo { x: 0.0, y: 0.0, width: 800.0, height: 600.0, scale_factor: 0.0 };
+        assert!(cursor_in_monitor_logical((400.0, 300.0), m));
     }
 
     #[test]

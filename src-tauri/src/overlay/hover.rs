@@ -25,10 +25,11 @@
 //! LOGICAL (`outer_position / scale`) and compares everything in logical points, end to end - the
 //! same space the frontend's `getBoundingClientRect` hitbox already lives in.
 //!
-//! NOTE (out of scope, latent, do NOT fix here): `panel::get_cursor_monitor_info` compares this same
-//! logical-points cursor against `monitor.position()`/`size()`, which are PHYSICAL pixels. On a
-//! Retina secondary monitor those spaces disagree, so cursor->monitor selection can pick the wrong
-//! display. Pre-existing; flagged for a separate fix.
+//! NOTE (fixed in T17): `panel::get_cursor_monitor_info` used to compare this same logical-points
+//! cursor against `monitor.position()`/`size()` (PHYSICAL pixels); on a Retina secondary monitor
+//! those spaces disagreed and cursor->monitor selection could pick the wrong display. It now divides
+//! each monitor's bounds by its own scale and compares in logical points, the same convention proven
+//! here.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -60,6 +61,13 @@ pub const AMBIENT_WING: f64 = 24.0;
 /// bool: true == slide the collapsed pill down (revealed), false == slide it back up (concealed, the
 /// frontend then shows the ambient wings indicator instead).
 const REVEAL_EVENT: &str = "island:reveal";
+
+/// Event the backend emits (scoped to the island window) when the cursor enters/leaves the visible
+/// shape (the pill/card hitbox). Payload is a bool: true == hovering the island. The frontend uses it
+/// to PAUSE auto-dismiss while the island is hovered, matching the card's JS hover-pause (the card
+/// polls the cursor against its own rect; the island reuses this already-running backend tracker
+/// because its click-through envelope makes DOM hover unreliable, T13).
+const HOVER_EVENT: &str = "island:hover";
 
 /// An axis-aligned rectangle in window-relative LOGICAL pixels (x, y from the window's top-left).
 /// Used both for the frontend shape hitbox and the backend-computed physical-notch region.
@@ -239,6 +247,9 @@ fn tick(app: &AppHandle) {
     let in_pill = hitbox.map_or(false, |hb| point_in_rect(rel, hb));
     if in_pill != INTERACTIVE.swap(in_pill, Ordering::SeqCst) {
         set_island_interactive(app, in_pill);
+        // Notify the webview so it pauses/resumes auto-dismiss on hover (card parity). Emitted only
+        // on a real transition, so it costs nothing while the cursor sits still.
+        let _ = app.emit_to(ISLAND_LABEL, HOVER_EVENT, in_pill);
     }
 
     // (2) Reveal (notch mode only - a set notch region gates it). The hot zone is the notch region

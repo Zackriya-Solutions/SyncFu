@@ -17,9 +17,7 @@
 
 use log::info;
 use serde::Serialize;
-use tauri::{AppHandle, Manager};
-#[cfg(target_os = "macos")]
-use tauri::Emitter;
+use tauri::{AppHandle, Emitter, Manager};
 
 #[cfg(target_os = "macos")]
 use tauri_nspanel::ManagerExt;
@@ -95,8 +93,9 @@ pub fn notch_geometry_dto(app: &AppHandle) -> Option<NotchGeometryDto> {
         use std::sync::mpsc;
         use std::time::Duration;
         let (tx, rx) = mpsc::channel();
+        let inner = app.clone();
         let _ = app.run_on_main_thread(move || {
-            let _ = tx.send(read_notch_geometry_on_main());
+            let _ = tx.send(effective_geometry_dto_on_main(&inner));
         });
         rx.recv_timeout(Duration::from_millis(500)).ok().flatten()
     }
@@ -107,13 +106,24 @@ pub fn notch_geometry_dto(app: &AppHandle) -> Option<NotchGeometryDto> {
     }
 }
 
-/// Read the notch geometry DTO on the current thread (MUST already be the main thread). Off the main
-/// thread `MainThreadMarker::new()` returns `None`, yielding a safe `None` rather than UB.
+/// The island's EFFECTIVE notch geometry for the display currently under the cursor, honoring the
+/// persisted mode (T17). Returns `Some(cutout)` only when the resolved mode is Notch on a notched
+/// cursor display; `None` for float mode or a non-notch cursor display (float capsule). Keeps the
+/// creation-read consistent with the `island:geometry` event `reposition_island_on_main` emits on
+/// every show, so a window that mounts while the cursor is on an external display seeds the float
+/// layout rather than the built-in cutout. MUST run on the main thread (cursor + NSScreen reads);
+/// off it `MainThreadMarker::new()` yields `None`.
 #[cfg(target_os = "macos")]
-fn read_notch_geometry_on_main() -> Option<NotchGeometryDto> {
-    use objc2_foundation::MainThreadMarker;
-    let mtm = MainThreadMarker::new()?;
-    crate::overlay::notch::notch_geometry(mtm).map(|g| NotchGeometryDto {
+fn effective_geometry_dto_on_main(app: &AppHandle) -> Option<NotchGeometryDto> {
+    let monitor = super::panel::get_cursor_monitor_info(app)
+        .or_else(|| super::panel::get_primary_monitor_info(app))?;
+    let settings = load_island_settings(app);
+    let display_notch = cursor_display_notch(monitor);
+    let mode = effective_island_mode(settings.mode, display_notch.is_some());
+    if mode != Mode::Notch {
+        return None;
+    }
+    display_notch.map(|g| NotchGeometryDto {
         width_logical: g.notch_width,
         height_logical: g.notch_height,
     })
@@ -187,13 +197,59 @@ pub fn island_anchor_for(
     }
 }
 
+/// Resolve the per-display island MODE (T17). `settings_mode` is the user's global preference; the
+/// presence of a physical notch on the CURSOR's display then decides the actual layout:
+/// - `Float` forces the float capsule EVERYWHERE (an explicit global override, notch never used);
+/// - `Notch` is AUTO per display: the under-notch layout on a notched display, but the float capsule
+///   on a non-notch display (an external monitor, or a non-notch Mac).
+///
+/// Non-macOS has no notch, so `cursor_display_has_notch` is always false and this always resolves to
+/// `Float` — byte-identical to the prior non-macOS behavior. This is the fix for the reported
+/// regression: the island now follows the cursor's screen and adopts that screen's class, exactly as
+/// the top-right card follows the cursor.
+pub fn effective_island_mode(settings_mode: Mode, cursor_display_has_notch: bool) -> Mode {
+    match settings_mode {
+        Mode::Float => Mode::Float,
+        Mode::Notch => {
+            if cursor_display_has_notch {
+                Mode::Notch
+            } else {
+                Mode::Float
+            }
+        }
+    }
+}
+
+/// The position to anchor the island window at, given the user's preference (T17). An explicit Float
+/// preference honors the chosen edge (Left / Right / BottomCenter); the Notch preference always
+/// resolves to Center, so the notched display sits under the notch (top-center) AND the auto
+/// notch->float fallback on a non-notch display renders the float capsule top-center ("float capsule
+/// top-center of THAT monitor"). This also keeps the WINDOW placement consistent with the frontend,
+/// which ignores `position` and never mirrors the capsule unless the store mode is Float.
+pub fn island_anchor_position(settings_mode: Mode, position: Position) -> Position {
+    match settings_mode {
+        Mode::Float => position,
+        Mode::Notch => Position::Center,
+    }
+}
+
+/// Whether two display widths (logical points) name the same physical panel, within a 1pt tolerance
+/// absorbing rounding between the CoreGraphics point width and the scaled monitor width. Used to
+/// decide whether the CURSOR's display is the built-in notched panel (T17).
+pub fn display_widths_match(a: f64, b: f64) -> bool {
+    (a - b).abs() < 1.0
+}
+
 /// Create the island window (hidden). Called once in `.setup()` after the panel is created.
 ///
 /// The window is created at the fixed envelope size, positioned at its initial top-center anchor,
 /// content-protected before it is ever shown (G2 ordering), and click-through while idle.
 pub fn create_island(app: &AppHandle) -> Result<(), String> {
     let envelope = IslandEnvelope::FIXED;
-    let position = island_target_monitor(app)
+    // Initial hidden placement follows the cursor's monitor (T17), like the card; the first show
+    // re-runs `reposition_island_on_main` with the full per-display mode + geometry resolution.
+    let position = super::panel::get_cursor_monitor_info(app)
+        .or_else(|| super::panel::get_primary_monitor_info(app))
         .map(|m| calculate_island_anchor(m, envelope.width))
         // No monitor info: center-ish default (mirrors panel.rs's default fallback).
         .unwrap_or(IslandPosition { x: 660.0, y: 0.0 });
@@ -351,15 +407,10 @@ pub fn reflow_island(app: &AppHandle) {
     let handle = app.clone();
     let inner = app.clone();
     let _ = handle.run_on_main_thread(move || {
+        // `reposition_island_on_main` already re-resolves the per-display mode and emits
+        // `island:geometry` (T17), so a monitor/display change reflows the under-notch pill + ambient
+        // wings indicator (or the float layout on a non-notch display) with no separate emit here.
         reposition_island_on_main(&inner);
-        // Push the current notch geometry to the island webview (T13/T14) so a monitor/display change
-        // reflows the under-notch pill + ambient wings indicator. Already on the main thread here.
-        // Emits `None` (null) on non-notch displays; the frontend keeps the float layout then.
-        #[cfg(target_os = "macos")]
-        {
-            let dto = read_notch_geometry_on_main();
-            let _ = inner.emit_to(ISLAND_LABEL, "island:geometry", &dto);
-        }
     });
 }
 
@@ -545,80 +596,118 @@ fn set_island_idle_click_through(app: &AppHandle) {
     set_island_interactive(app, false);
 }
 
-/// Reposition the island window to its target monitor's top-center anchor. MUST run on the main
-/// thread (notch detection needs a `MainThreadMarker`). No-op if the window or monitor is missing.
-fn reposition_island_on_main(app: &AppHandle) {
-    if let Some(monitor) = island_target_monitor(app) {
-        // Read the persisted mode + position so a float position anchors the frame to the matching
-        // edge. A missing/corrupt file yields defaults (notch/center == top-center). D3: this is an
-        // instant `set_position`, never an animated frame move.
-        let settings = crate::notification::settings::settings_path(app)
-            .map(|p| crate::notification::settings::load_settings(&p))
-            .unwrap_or_default();
-        let pos = island_anchor_for(monitor, IslandEnvelope::FIXED, settings.mode, settings.position);
-        if let Some(window) = app.get_webview_window(ISLAND_LABEL) {
-            let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition::new(
-                pos.x, pos.y,
-            )));
-        }
-        // Publish the physical-notch hover region for the reveal (T13/T14). Enabled ONLY in notch
-        // mode with a real cutout; float / non-notch clears it so the reveal is inert (the pill
-        // stays visible there). The window is centered, so the region is centered on the fixed
-        // envelope, and it spans the ambient wings that flank the cutout (hover them to reveal).
-        update_notch_region_on_main(settings.mode);
-    }
+/// Load the persisted island settings, or defaults on a missing/corrupt file.
+fn load_island_settings(app: &AppHandle) -> crate::notification::settings::IslandSettings {
+    crate::notification::settings::settings_path(app)
+        .map(|p| crate::notification::settings::load_settings(&p))
+        .unwrap_or_default()
 }
 
-/// Compute + store (or clear) the physical-notch hover region used by the reveal, based on the live
-/// cutout geometry and the persisted mode. MUST run on the main thread (`read_notch_geometry_on_main`
-/// needs a `MainThreadMarker`). On non-macOS there is no notch, so the region is always cleared.
-fn update_notch_region_on_main(mode: Mode) {
+/// Reposition the island to the CURSOR's monitor (the active screen), then publish that display's
+/// class to the webview (T17). MUST run on the main thread (notch + NSScreen reads). No-op if no
+/// monitor resolves.
+///
+/// This is the fix for the reported regression: the island now follows the cursor monitor exactly
+/// like the top-right card, instead of pinning to the built-in notched panel. The per-display mode is
+/// resolved here — `Float` settings force the float capsule everywhere; `Notch` settings are auto:
+/// the under-notch layout on a notched display, the float capsule top-center on a non-notch display.
+fn reposition_island_on_main(app: &AppHandle) {
+    let monitor = match super::panel::get_cursor_monitor_info(app)
+        .or_else(|| super::panel::get_primary_monitor_info(app))
+    {
+        Some(m) => m,
+        None => return,
+    };
+
+    // Read the persisted preference; a float position anchors the frame to the matching edge. A
+    // missing/corrupt file yields defaults (notch/center == top-center). D3: an instant
+    // `set_position`, never an animated frame move.
+    let settings = load_island_settings(app);
+    let mode = effective_island_mode(settings.mode, cursor_display_has_notch(monitor));
+
+    let anchor_position = island_anchor_position(settings.mode, settings.position);
+    let pos = island_anchor_for(monitor, IslandEnvelope::FIXED, mode, anchor_position);
+    if let Some(window) = app.get_webview_window(ISLAND_LABEL) {
+        let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition::new(
+            pos.x, pos.y,
+        )));
+    }
+
+    apply_island_geometry_on_main(app, monitor, mode);
+}
+
+/// True when the cursor's current display physically has a notch. macOS: correlates the cursor's
+/// monitor to the built-in notched panel by logical width. Non-macOS: always false (no notch API).
+fn cursor_display_has_notch(monitor: MonitorInfo) -> bool {
     #[cfg(target_os = "macos")]
     {
-        let region = if mode == Mode::Notch {
-            read_notch_geometry_on_main().map(|g| {
-                crate::overlay::hover::notch_region(
-                    IslandEnvelope::FIXED.width,
-                    g.width_logical,
-                    g.height_logical,
-                    crate::overlay::hover::AMBIENT_WING,
-                    crate::overlay::hover::NOTCH_MARGIN,
-                )
-            })
-        } else {
-            None
-        };
-        crate::overlay::hover::set_notch_region(region);
+        cursor_display_notch(monitor).is_some()
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = mode;
-        crate::overlay::hover::set_notch_region(None);
+        let _ = monitor;
+        false
     }
 }
 
-/// Select the monitor to anchor the island on.
-///
-/// macOS: when any attached display has a notch, anchor on the primary monitor - the built-in
-/// notched panel in the standard single-builtin config. Precise multi-display targeting of an
-/// arbitrary notched screen (e.g. an external set as main display) is deferred; primary is the
-/// documented proxy, and non-notch layouts fall through to the cursor monitor (floating capsule).
+/// The notch cutout geometry IFF the display currently under the cursor is the built-in notched panel
+/// (T17), else `None`. Correlates the notched screen (the only display whose `safeAreaInsets().top`
+/// is positive) to the cursor's monitor by LOGICAL width. Documented proxy: two displays of identical
+/// logical width would be ambiguous, but only the built-in carries a notch in the supported
+/// single-builtin configuration — strictly better than the prior "any notch => primary monitor"
+/// proxy. MUST run on the main thread (NSScreen read).
 #[cfg(target_os = "macos")]
-fn island_target_monitor(app: &AppHandle) -> Option<MonitorInfo> {
+fn cursor_display_notch(monitor: MonitorInfo) -> Option<crate::overlay::notch::NotchGeometry> {
     use objc2_foundation::MainThreadMarker;
 
-    if let Some(mtm) = MainThreadMarker::new() {
-        if crate::overlay::notch::notch_geometry(mtm).is_some() {
-            return super::panel::get_primary_monitor_info(app);
-        }
+    let mtm = MainThreadMarker::new()?;
+    let geo = crate::overlay::notch::notch_geometry(mtm)?;
+    let cursor_logical_width = monitor.width / monitor.scale_factor;
+    if display_widths_match(cursor_logical_width, geo.screen_width) {
+        Some(geo)
+    } else {
+        None
     }
-    super::panel::get_cursor_monitor_info(app).or_else(|| super::panel::get_primary_monitor_info(app))
 }
 
-/// Non-macOS: floating capsule follows the cursor monitor, like the panel.
-#[cfg(not(target_os = "macos"))]
-fn island_target_monitor(app: &AppHandle) -> Option<MonitorInfo> {
-    super::panel::get_cursor_monitor_info(app).or_else(|| super::panel::get_primary_monitor_info(app))
+/// Set (or clear) the physical-notch hover region for the reveal AND emit `island:geometry` to the
+/// island webview so it flips its notch/float layout when the window moves to a different display
+/// class (T17). In effective NOTCH mode with a real cutout it publishes the cutout DTO + region;
+/// otherwise it emits `null` (float layout) and clears the region so the reveal is inert (the pill
+/// stays visible). MUST run on the main thread.
+fn apply_island_geometry_on_main(app: &AppHandle, monitor: MonitorInfo, mode: Mode) {
+    #[cfg(target_os = "macos")]
+    {
+        let notch = if mode == Mode::Notch {
+            cursor_display_notch(monitor)
+        } else {
+            None
+        };
+        // The window is centered on the monitor, so the region is centered on the fixed envelope and
+        // spans the ambient wings that flank the cutout (hover them to reveal).
+        let region = notch.map(|g| {
+            crate::overlay::hover::notch_region(
+                IslandEnvelope::FIXED.width,
+                g.notch_width,
+                g.notch_height,
+                crate::overlay::hover::AMBIENT_WING,
+                crate::overlay::hover::NOTCH_MARGIN,
+            )
+        });
+        crate::overlay::hover::set_notch_region(region);
+
+        let dto = notch.map(|g| NotchGeometryDto {
+            width_logical: g.notch_width,
+            height_logical: g.notch_height,
+        });
+        let _ = app.emit_to(ISLAND_LABEL, "island:geometry", &dto);
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (monitor, mode);
+        crate::overlay::hover::set_notch_region(None);
+        let _ = app.emit_to(ISLAND_LABEL, "island:geometry", &Option::<NotchGeometryDto>::None);
+    }
 }
 
 #[cfg(test)]
@@ -808,6 +897,69 @@ mod tests {
                 calculate_island_float_anchor(m, ENV, position),
             );
         }
+    }
+
+    // --- Per-display mode resolution (T17: follow the cursor's screen, notch = auto per display) ---
+
+    #[test]
+    fn notch_settings_are_auto_per_display() {
+        // The default preference (Notch) adopts the layout of the CURSOR's display: under-notch on a
+        // notched display, float capsule on a non-notch display (external monitor / non-notch Mac).
+        assert_eq!(effective_island_mode(Mode::Notch, true), Mode::Notch);
+        assert_eq!(effective_island_mode(Mode::Notch, false), Mode::Float);
+    }
+
+    #[test]
+    fn float_settings_force_float_on_every_display() {
+        // Float is an explicit global override: the float capsule everywhere, even on the notched
+        // built-in. A notch is never used when the user picked Float.
+        assert_eq!(effective_island_mode(Mode::Float, true), Mode::Float);
+        assert_eq!(effective_island_mode(Mode::Float, false), Mode::Float);
+    }
+
+    #[test]
+    fn effective_mode_drives_the_anchor_per_display() {
+        // End-to-end intent: on the notched built-in (Notch settings) the island anchors under the
+        // notch (top-center); on an external non-notch display it anchors as the float capsule for
+        // its position. Both resolve through effective_island_mode -> island_anchor_for.
+        let builtin = MonitorInfo { x: 0.0, y: 0.0, width: 3024.0, height: 1964.0, scale_factor: 2.0 };
+        let external = MonitorInfo { x: 3024.0, y: 0.0, width: 2560.0, height: 1440.0, scale_factor: 1.0 };
+
+        let notch_mode = effective_island_mode(Mode::Notch, true);
+        assert_eq!(
+            island_anchor_for(builtin, ENV, notch_mode, Position::Center),
+            calculate_island_anchor(builtin, ENV.width),
+        );
+
+        let float_mode = effective_island_mode(Mode::Notch, false);
+        assert_eq!(
+            island_anchor_for(external, ENV, float_mode, Position::Center),
+            calculate_island_float_anchor(external, ENV, Position::Center),
+        );
+    }
+
+    #[test]
+    fn anchor_position_notch_is_always_center_float_honors_the_edge() {
+        // Notch preference -> Center everywhere: top-center under the notch, and the auto float
+        // fallback on a non-notch display is float top-center (never a stored Left/Right/BottomCenter,
+        // which would drift from the frontend's center/top-aligned notch-mode layout).
+        for p in [Position::Left, Position::Center, Position::Right, Position::BottomCenter] {
+            assert_eq!(island_anchor_position(Mode::Notch, p), Position::Center);
+        }
+        // Explicit Float preference honors the user's chosen edge on every display.
+        for p in [Position::Left, Position::Center, Position::Right, Position::BottomCenter] {
+            assert_eq!(island_anchor_position(Mode::Float, p), p);
+        }
+    }
+
+    #[test]
+    fn display_widths_match_tolerates_sub_point_rounding() {
+        // The built-in panel: 1470-point CoreGraphics width vs the scaled monitor width. Equal and
+        // near-equal widths name the same display; a different width does not.
+        assert!(display_widths_match(1470.0, 1470.0));
+        assert!(display_widths_match(1470.0, 1469.6));
+        assert!(!display_widths_match(1470.0, 1512.0)); // a genuinely different panel
+        assert!(!display_widths_match(1470.0, 2560.0)); // an external
     }
 
     #[test]

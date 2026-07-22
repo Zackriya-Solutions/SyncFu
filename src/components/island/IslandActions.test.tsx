@@ -109,6 +109,33 @@ describe("Island actions / --wait / timeouts / countdown (T5a)", () => {
     expect(onDismiss).toHaveBeenCalledWith("isl-1");
   });
 
+  it("PAUSES auto-dismiss while the island is hovered, then dismisses on leave (T17, card parity)", () => {
+    setup();
+    const onDismiss = vi.fn();
+    const { rerender } = render(
+      <Island
+        notification={makeNotification({ priority: "normal" })}
+        onDismiss={onDismiss}
+        hovered
+      />
+    );
+    // Well past the 8s normal timeout and many hover polls: hovering DEFERS the dismissal, exactly
+    // like NotificationCard's cursor-poll hover-pause.
+    act(() => vi.advanceTimersByTime(20000));
+    expect(onDismiss).not.toHaveBeenCalled();
+
+    // Cursor leaves the island: the next poll (<= 200ms) fires the deferred exit-1 dismissal.
+    rerender(
+      <Island
+        notification={makeNotification({ priority: "normal" })}
+        onDismiss={onDismiss}
+        hovered={false}
+      />
+    );
+    act(() => vi.advanceTimersByTime(200));
+    expect(onDismiss).toHaveBeenCalledWith("isl-1");
+  });
+
   it("critical NEVER auto-dismisses (parity with the card)", () => {
     setup();
     const onDismiss = vi.fn();
