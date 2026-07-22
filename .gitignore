@@ -38,3 +38,7 @@ target/
 # Internal planning/design artifacts (kept local, never shipped)
 tasks/
 .syncfu/skills/
+e2e/
+playwright.config.ts
+docs/RELEASE-CHECKLIST.md
+docs/AIDocs/
