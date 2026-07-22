@@ -369,3 +369,8 @@ Worktrees preserved: t5b, t6, t10, t11 (earlier 13 removed on user instruction).
 - T16 MERGED: README/CHEATSHEET/skill files/docs/island.md/examples (3 of 4 run live). FLAG: the
   user's INSTALLED CLI 0.3.0 predates --presentation - republish with the release (checklist).
 - Doc-impact deltas applied: docs/island.md gains display-targeting + window-events sections.
+- T19 MERGED (1334c1f): waiter drop-guard (same_channel + receiver_count identity/liveness - no
+  generation counter needed; early-return leak also closed; snapshot re-emit on cleanup) + group
+  hitbox holes closed (accordion + row-count-while-open; empirically proven delta-0 before fix)
+  + 4 T18-review nits folded. 170 Rust + 225 vitest. Iteration 8 complete pending user re-run of
+  the 6-step reproduction. Review in flight.
