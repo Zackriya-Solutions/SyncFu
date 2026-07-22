@@ -6,8 +6,10 @@
 //! envelope never eats clicks. This module polls the cursor at ~10Hz WHILE notifications exist and
 //! flips the window interactive only while the cursor is inside the frontend-reported shape hitbox,
 //! restoring click-through otherwise. It ALSO drives the reveal: in notch mode the collapsed pill is
-//! concealed until the cursor enters the backend-computed physical-notch region, then it slides down;
-//! leaving both the notch region AND the pill for `GRACE` conceals it again (`island:reveal` event).
+//! concealed - the frontend shows a minimal AMBIENT WINGS indicator in its place (T14) - until the
+//! cursor enters the backend-computed hover region (the physical cutout PLUS the ambient wings that
+//! flank it, grown by a margin), then the pill slides down; leaving both the region AND the pill for
+//! `GRACE` conceals it back to the ambient wings (`island:reveal` event).
 //!
 //! Lifecycle (R-PERF): the poll is spawned by `show_island` and stopped by `hide_island`. The island
 //! window is shown for exactly as long as a notification exists (reveal is CSS-only and NEVER hides
@@ -48,8 +50,15 @@ const REVEAL_GRACE: Duration = Duration::from_millis(400);
 /// cursor is exactly over the ~183x32 cutout (fat-finger / fast-cursor margin).
 pub const NOTCH_MARGIN: f64 = 8.0;
 
+/// Half-width (logical px) of ONE ambient wing that flanks the physical cutout while the pill is
+/// concealed (T14). The visible ambient shape is `cutout_width + 2 * AMBIENT_WING` wide, so the hover
+/// region must span the wings too - hovering the visible thing is what triggers the reveal. MUST stay
+/// in sync with the frontend `AMBIENT_WING` in `src/lib/islandMorph.ts` (they size the same shape).
+pub const AMBIENT_WING: f64 = 24.0;
+
 /// Event the backend emits (scoped to the island window) when the reveal state flips. Payload is a
-/// bool: true == slide the collapsed pill down (revealed), false == slide it back up (concealed).
+/// bool: true == slide the collapsed pill down (revealed), false == slide it back up (concealed, the
+/// frontend then shows the ambient wings indicator instead).
 const REVEAL_EVENT: &str = "island:reveal";
 
 /// An axis-aligned rectangle in window-relative LOGICAL pixels (x, y from the window's top-left).
@@ -115,15 +124,24 @@ pub fn window_relative(
 }
 
 /// Compute the physical-notch hover region in window-relative LOGICAL px. The island window is
-/// horizontally centered on the monitor, so the cutout center is exactly `envelope_width / 2`; the
-/// region spans the cutout width/height grown by `margin` on the sides and bottom, with its top at
-/// the window top (y = 0, the screen top edge - no point extending above it).
-pub fn notch_region(envelope_width: f64, notch_width: f64, notch_height: f64, margin: f64) -> Hitbox {
+/// horizontally centered on the monitor, so the cutout center is exactly `envelope_width / 2`. The
+/// region spans the cutout PLUS one ambient `wing` on each side (so hovering the visible ambient
+/// wings that flank the cutout triggers the reveal, T14), all grown by `margin` on the sides and
+/// bottom, with its top at the window top (y = 0, the screen top edge - no point extending above it).
+/// The wings are the same height as the cutout, so `notch_height + margin` already covers them.
+pub fn notch_region(
+    envelope_width: f64,
+    notch_width: f64,
+    notch_height: f64,
+    wing: f64,
+    margin: f64,
+) -> Hitbox {
     let center_x = envelope_width / 2.0;
+    let half = notch_width / 2.0 + wing + margin;
     Hitbox {
-        x: center_x - notch_width / 2.0 - margin,
+        x: center_x - half,
         y: 0.0,
-        w: notch_width + 2.0 * margin,
+        w: notch_width + 2.0 * (wing + margin),
         h: notch_height + margin,
     }
 }
@@ -318,16 +336,28 @@ mod tests {
 
     // --- Notch region geometry ---
     #[test]
-    fn notch_region_is_centered_on_the_envelope_and_grown_by_margin() {
-        // G1 hardware: 183 x 32 cutout, 600 envelope, 8px margin. Center x = 300.
-        let r = notch_region(600.0, 183.0, 32.0, 8.0);
-        assert_eq!(r.x, 300.0 - 183.0 / 2.0 - 8.0); // 199.5
+    fn notch_region_covers_the_cutout_plus_both_ambient_wings_and_the_margin() {
+        // G1 hardware: 183 x 32 cutout, 600 envelope, 24px ambient wing, 8px margin. Center x = 300.
+        let r = notch_region(600.0, 183.0, 32.0, 24.0, 8.0);
+        assert_eq!(r.x, 300.0 - 183.0 / 2.0 - 24.0 - 8.0); // 175.5
         assert_eq!(r.y, 0.0);
-        assert_eq!(r.w, 183.0 + 16.0); // 199
-        assert_eq!(r.h, 32.0 + 8.0); // 40
+        assert_eq!(r.w, 183.0 + 2.0 * (24.0 + 8.0)); // 247
+        assert_eq!(r.h, 32.0 + 8.0); // 40 (the wings are the cutout height, so the margin covers them)
         // The cutout center is inside the region; a point far below the cutout+margin is not.
         assert!(point_in_rect((300.0, 5.0), r));
         assert!(!point_in_rect((300.0, 45.0), r));
+    }
+
+    #[test]
+    fn notch_region_extends_over_the_ambient_wings_beside_the_cutout() {
+        // A point in the RIGHT wing (just past the cutout's right edge, inside the wing) is hot, so
+        // hovering the visible ambient wings triggers the reveal. The same point WITHOUT the wing
+        // (the T13 cutout-only region) would have been outside.
+        let with_wings = notch_region(600.0, 183.0, 32.0, 24.0, 8.0);
+        let cutout_only = notch_region(600.0, 183.0, 32.0, 0.0, 8.0);
+        let in_right_wing = (300.0 + 183.0 / 2.0 + 12.0, 16.0); // 12px into the 24px right wing
+        assert!(point_in_rect(in_right_wing, with_wings));
+        assert!(!point_in_rect(in_right_wing, cutout_only));
     }
 
     // --- Reveal state machine: hidden -> hover -> revealed -> grace -> hidden ---

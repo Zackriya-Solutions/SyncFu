@@ -22,10 +22,12 @@ import {
   createMorphController,
   effectiveIslandSettings,
   shouldReveal,
+  shouldShowAmbient,
   type IslandState,
   type MorphController,
   type NotchGeometry,
 } from "@/lib/islandMorph";
+import { AmbientWings } from "./AmbientWings";
 import { IslandCompact } from "./IslandCompact";
 import { IslandExpanded } from "./IslandExpanded";
 
@@ -147,9 +149,10 @@ interface IslandProps {
    *  offset down by the cutout height); `null`/float keeps the pre-existing floating layout. Supplied
    *  by IslandOverlay; omitted (null) in the unit/render harnesses. */
   readonly notchGeometry?: NotchGeometry | null;
-  /** Backend hover-reveal signal (T13, `island:reveal`): true while the physical notch (or the pill)
-   *  is hovered. Governs the COLLAPSED under-notch pill only; an expanded island is always visible.
-   *  Ignored in float / non-notch mode and while the island is `controlled` (harness/tests). */
+  /** Backend hover-reveal signal (T13, `island:reveal`): true while the physical notch, its ambient
+   *  wings, or the pill is hovered. Governs the COLLAPSED under-notch pill only (collapsed + not
+   *  hovered shows the ambient wings instead, T14); an expanded island is always visible. Ignored in
+   *  float / non-notch mode. Harness/tests pass it explicitly to pick the ambient vs revealed state. */
   readonly notchHover?: boolean;
   /** Settle report (BUG B): fires with the shape's window-relative bounds on every morph settle AND
    *  on each reveal slide settle, so the host can push the click-through hitbox to the backend. */
@@ -364,10 +367,13 @@ export const Island = forwardRef<IslandHandle, IslandProps>(function Island(
   }, [controlled, isDecision, autoDismissMs, onDismiss, notification.id]);
 
   const expanded = renderState === "expanded";
-  // Hover-reveal (T13): the under-notch collapsed pill is concealed until the physical notch is
-  // hovered; expanded is always visible; float / non-notch always visible. A controlled island
-  // (harness/tests) pins its state and is always revealed so fixtures always render the pill.
-  const revealed = controlled || shouldReveal(underNotch, expanded, notchHover);
+  // Hover-reveal (T13) + ambient wings (T14): the under-notch collapsed pill is concealed until the
+  // physical notch (or its ambient wings) is hovered; expanded is always visible; float / non-notch
+  // always visible. When concealed under-notch, the pill is NOT hidden outright - the ambient wings
+  // indicator shows in its place (below). `controlled` (harness/tests) does NOT force reveal: fixtures
+  // pick the ambient vs revealed state via `notchHover`, mirroring production faithfully.
+  const revealed = shouldReveal(underNotch, expanded, notchHover);
+  const ambient = shouldShowAmbient(underNotch, expanded, notchHover);
 
   // Re-report the hitbox whenever the reveal state flips. Under reduced motion the wrapper has NO
   // CSS transition, so onTransitionEnd never fires and the hitbox would go stale (a stale revealed-
@@ -391,7 +397,7 @@ export const Island = forwardRef<IslandHandle, IslandProps>(function Island(
   // compact pill keeps its light text on the black fill (invariant d).
   const lightContent = isLight && (expanded || mode === "float");
 
-  return (
+  const pill = (
     <div
       className="di-reveal"
       data-testid="island-reveal"
@@ -424,5 +430,18 @@ export const Island = forwardRef<IslandHandle, IslandProps>(function Island(
         </div>
       </div>
     </div>
+  );
+
+  // Float / non-notch: byte-identical to the pre-T14 output (just the pill wrapper, no ambient).
+  if (!underNotch) return pill;
+
+  // Under-notch: the pill PLUS the ambient wings indicator (T14). The ambient element is always
+  // mounted (so it can cross-fade) and toggles visibility via `data-visible`; it is absolutely
+  // positioned (island.css) so it overlays the notch independently of the pill's slide transform.
+  return (
+    <>
+      {pill}
+      <AmbientWings notification={notification} geo={notchGeometry!} visible={ambient} />
+    </>
   );
 });

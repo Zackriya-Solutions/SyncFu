@@ -4,12 +4,15 @@ import { Island } from "./Island";
 import type { NotchGeometry } from "@/lib/islandMorph";
 import type { NotificationPayload } from "@/types/notification";
 
-// T13 under-notch layout (jsdom). With a real cutout geometry in notch mode the
+// T13/T14 under-notch layout (jsdom). With a real cutout geometry in notch mode the
 // island renders as a SECOND NOTCH below the cutout: the compact pill takes the
 // cutout WIDTH, the whole island is offset down by the cutout HEIGHT (published as
 // `--di-notch-h` on the `.di-reveal` wrapper), and the compact content lays out
-// NORMALLY - the sender label is back (no wing layout). Without geometry (the
-// default jsdom path) nothing changes.
+// NORMALLY - the sender label is back (no wing layout). While collapsed and NOT
+// hovered the pill is concealed and a minimal AMBIENT WINGS indicator shows in its
+// place (T14). Reveal follows `notchHover` even for controlled fixtures, so tests
+// pick the ambient vs revealed state explicitly. Without geometry (the default
+// jsdom path) nothing changes.
 const G1: NotchGeometry = { widthLogical: 183, heightLogical: 32 };
 
 function makeNotification(
@@ -29,14 +32,15 @@ function makeNotification(
   };
 }
 
-describe("Island under-notch layout (T13)", () => {
-  it("keeps the sender label and marks the reveal wrapper in notch mode with geometry", () => {
+describe("Island under-notch layout (T13/T14)", () => {
+  it("keeps the sender label and marks the revealed reveal wrapper when hovered", () => {
     render(
       <Island
         notification={makeNotification()}
         state="compact"
         mode="notch"
         notchGeometry={G1}
+        notchHover
       />
     );
     // Normal compact layout: glyph + sender label all present (no wing omission).
@@ -47,8 +51,70 @@ describe("Island under-notch layout (T13)", () => {
     const wrapper = screen.getByTestId("island-reveal");
     expect(wrapper).toHaveAttribute("data-notch", "true");
     expect(wrapper.style.getPropertyValue("--di-notch-h")).toBe("32px");
-    // A controlled island is always revealed so fixtures render the pill.
+    // Hovered -> the pill is revealed.
     expect(wrapper).toHaveAttribute("data-revealed", "true");
+  });
+
+  it("shows the ambient wings indicator when collapsed and NOT hovered (T14)", () => {
+    render(
+      <Island
+        notification={makeNotification({ priority: "high" })}
+        state="compact"
+        mode="notch"
+        notchGeometry={G1}
+      />
+    );
+    // The pill wrapper is concealed (not revealed) - the ambient indicator takes its place.
+    expect(screen.getByTestId("island-reveal")).toHaveAttribute("data-revealed", "false");
+
+    const ambient = screen.getByTestId("island-ambient");
+    expect(ambient).toHaveAttribute("data-visible", "true");
+    // Sized like T12's wing pill: cutout width + 2 wings, at the cutout height.
+    expect(ambient.style.width).toBe(`${183 + 2 * 24}px`);
+    expect(ambient.style.height).toBe("32px");
+    // The priority accent hint is a dot (no progress) carrying the notification's priority.
+    expect(ambient).toHaveAttribute("data-priority", "high");
+    expect(screen.getByTestId("island-ambient-dot")).toBeInTheDocument();
+    // No glyph/label content in the ambient indicator (T12 taught us they do not fit).
+    expect(screen.queryByTestId("island-ambient-ring")).not.toBeInTheDocument();
+  });
+
+  it("uses the progress ring in the ambient indicator when progress exists (T14)", () => {
+    render(
+      <Island
+        notification={makeNotification({ progress: { value: 0.5, style: "bar" } })}
+        state="compact"
+        mode="notch"
+        notchGeometry={G1}
+      />
+    );
+    expect(screen.getByTestId("island-ambient-ring")).toBeInTheDocument();
+    expect(screen.queryByTestId("island-ambient-dot")).not.toBeInTheDocument();
+  });
+
+  it("hides the ambient indicator once revealed (hover) or expanded (T14)", () => {
+    const { rerender } = render(
+      <Island
+        notification={makeNotification()}
+        state="compact"
+        mode="notch"
+        notchGeometry={G1}
+        notchHover
+      />
+    );
+    // Hovered compact -> revealed pill, ambient hidden (still mounted for the cross-fade).
+    expect(screen.getByTestId("island-ambient")).toHaveAttribute("data-visible", "false");
+
+    rerender(
+      <Island
+        notification={makeNotification()}
+        state="expanded"
+        mode="notch"
+        notchGeometry={G1}
+      />
+    );
+    // Expanded is always visible -> no ambient.
+    expect(screen.getByTestId("island-ambient")).toHaveAttribute("data-visible", "false");
   });
 
   it("takes the cutout width for the compact pill (second-notch sizing)", () => {
@@ -86,6 +152,8 @@ describe("Island under-notch layout (T13)", () => {
     );
     expect(screen.getByText("claude-code")).toBeInTheDocument();
     expect(screen.getByTestId("island-reveal")).not.toHaveAttribute("data-notch");
+    // Float never shows the ambient wings indicator (no ambient state off the notched panel).
+    expect(screen.queryByTestId("island-ambient")).not.toBeInTheDocument();
   });
 
   it("reports the shape hitbox on settle (BUG B): onSettle fires with a rect", () => {

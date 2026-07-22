@@ -1,7 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
+  AMBIENT_WING,
+  ambientWingsSize,
   effectiveIslandSettings,
   shouldReveal,
+  shouldShowAmbient,
   type NotchGeometry,
 } from "./islandMorph";
 import { DEFAULT_ISLAND_SETTINGS } from "@/types/islandSettings";
@@ -44,6 +47,18 @@ describe("effectiveIslandSettings (under-notch sizing)", () => {
   });
 });
 
+describe("ambientWingsSize (T14 ambient indicator sizing)", () => {
+  it("is the cutout width plus one wing per side, at exactly the cutout height", () => {
+    // G1: 183 wide + 2*24 wings = 231; height is the cutout height (flush at the top).
+    expect(ambientWingsSize(G1)).toEqual({ width: 183 + 2 * AMBIENT_WING, height: 32 });
+    expect(ambientWingsSize(G1)).toEqual({ width: 231, height: 32 });
+  });
+
+  it("accepts a custom wing width", () => {
+    expect(ambientWingsSize(G1, 10)).toEqual({ width: 183 + 20, height: 32 });
+  });
+});
+
 describe("shouldReveal (hover-reveal decision)", () => {
   it("float / non-notch is ALWAYS visible (no reveal semantics)", () => {
     expect(shouldReveal(false, false, false)).toBe(true);
@@ -51,8 +66,9 @@ describe("shouldReveal (hover-reveal decision)", () => {
   });
 
   it("under-notch collapsed pill is concealed until the notch is hovered", () => {
-    expect(shouldReveal(true, false, false)).toBe(false); // collapsed, no hover -> hidden
-    expect(shouldReveal(true, false, true)).toBe(true); // collapsed, hovered -> revealed
+    // Concealed here means the AMBIENT WINGS show in the pill's place (T14), not fully hidden.
+    expect(shouldReveal(true, false, false)).toBe(false); // collapsed, no hover -> ambient
+    expect(shouldReveal(true, false, true)).toBe(true); // collapsed, hovered -> revealed pill
   });
 
   it("an EXPANDED island is always visible and never auto-conceals on cursor exit", () => {
@@ -60,5 +76,32 @@ describe("shouldReveal (hover-reveal decision)", () => {
     // signal entirely, so a cursor leaving the notch never hides it.
     expect(shouldReveal(true, true, false)).toBe(true);
     expect(shouldReveal(true, true, true)).toBe(true);
+  });
+});
+
+describe("shouldShowAmbient (T14 render-state matrix, ambient row)", () => {
+  it("shows the ambient wings ONLY when under-notch, collapsed, and not hovered", () => {
+    expect(shouldShowAmbient(true, false, false)).toBe(true); // the new ambient row
+  });
+
+  it("does NOT show ambient when the pill is revealed (hover) or expanded", () => {
+    expect(shouldShowAmbient(true, false, true)).toBe(false); // hovered -> revealed pill
+    expect(shouldShowAmbient(true, true, false)).toBe(false); // expanded -> full card
+    expect(shouldShowAmbient(true, true, true)).toBe(false);
+  });
+
+  it("never shows ambient in float / non-notch mode", () => {
+    expect(shouldShowAmbient(false, false, false)).toBe(false);
+    expect(shouldShowAmbient(false, true, false)).toBe(false);
+  });
+
+  it("is the exact under-notch complement of shouldReveal", () => {
+    for (const expanded of [false, true]) {
+      for (const hover of [false, true]) {
+        expect(shouldShowAmbient(true, expanded, hover)).toBe(
+          !shouldReveal(true, expanded, hover)
+        );
+      }
+    }
   });
 });
