@@ -374,3 +374,9 @@ Worktrees preserved: t5b, t6, t10, t11 (earlier 13 removed on user instruction).
   hitbox holes closed (accordion + row-count-while-open; empirically proven delta-0 before fix)
   + 4 T18-review nits folded. 170 Rust + 225 vitest. Iteration 8 complete pending user re-run of
   the 6-step reproduction. Review in flight.
+- T19 REVIEW: CLEAN - every drop-guard interleaving independently walked and verified sound
+  (incl. drop-vs-new-subscribe races both orderings); disconnect test proven CI-safe; T18 nits
+  confirmed folded. 3 minor notes queued as follow-ups: spawn-guard belt-and-suspenders,
+  end-to-end resend-merges A4 assertion, harmless double hitbox report on expand. Also on record:
+  pre-existing subscribe-vs-check microsecond race sends synthetic Dismissed (predates T19,
+  documented). Iteration 8 closed pending user re-run.
