@@ -37,11 +37,50 @@ impl WaiterRegistry {
     /// Creates a new broadcast channel if one doesn't exist yet.
     /// Returns a receiver that will get the next event.
     pub async fn subscribe(&self, id: &str) -> broadcast::Receiver<WaitEvent> {
+        self.subscribe_with_sender(id).await.1
+    }
+
+    /// Subscribe AND return a clone of the channel's sender alongside the receiver.
+    /// The sender clone is the identity token the client-disconnect drop-guard needs
+    /// (`remove_if_orphaned`): it lets cleanup remove the entry ONLY while it is still
+    /// the same channel this subscription joined, never a fresh channel a later wait
+    /// on the same id created after a `notify()` removed the original.
+    pub async fn subscribe_with_sender(
+        &self,
+        id: &str,
+    ) -> (broadcast::Sender<WaitEvent>, broadcast::Receiver<WaitEvent>) {
         let mut waiters = self.waiters.write().await;
         let sender = waiters
             .entry(id.to_string())
             .or_insert_with(|| broadcast::channel(4).0);
-        sender.subscribe()
+        (sender.clone(), sender.subscribe())
+    }
+
+    /// Remove the entry for `id` IFF it is still the same channel `sender` joined AND
+    /// that channel has no remaining receivers. Returns whether an entry was removed.
+    ///
+    /// This is the client-disconnect cleanup (a `--wait` CLI dying / Ctrl+C). The two
+    /// guards make it safe against the concurrency the registry allows:
+    /// - `same_channel`: after a `notify()` removed the original channel, a later wait
+    ///   on the same id creates a NEW channel; a late drop from the first stream must
+    ///   not remove that fresh entry (identity, not just key, must match).
+    /// - `receiver_count() == 0`: two concurrent waits on one id SHARE a channel; one
+    ///   disconnecting must not evict the entry while the other is still listening.
+    pub async fn remove_if_orphaned(
+        &self,
+        id: &str,
+        sender: &broadcast::Sender<WaitEvent>,
+    ) -> bool {
+        let mut waiters = self.waiters.write().await;
+        match waiters.get(id) {
+            Some(existing)
+                if existing.same_channel(sender) && existing.receiver_count() == 0 =>
+            {
+                waiters.remove(id);
+                true
+            }
+            _ => false,
+        }
     }
 
     /// Send an event to all subscribers waiting on this notification ID.
@@ -168,6 +207,78 @@ mod tests {
 
         // Should not panic, just clean up
         registry.notify("n1", WaitEvent::Dismissed).await;
+        assert_eq!(registry.waiter_count().await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_remove_if_orphaned_removes_dead_subscription() {
+        // A --wait client that disconnects (its receiver dropped) leaves a channel
+        // with zero receivers; cleanup removes it so the notification stops looking
+        // like it has a live waiter forever.
+        let registry = WaiterRegistry::new();
+        let (sender, rx) = registry.subscribe_with_sender("n1").await;
+        assert_eq!(registry.waiter_count().await, 1);
+        drop(rx); // client disconnect
+        assert!(registry.remove_if_orphaned("n1", &sender).await);
+        assert_eq!(registry.waiter_count().await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_remove_if_orphaned_keeps_live_subscription() {
+        // While a receiver is still listening, cleanup from a sibling stream must not
+        // evict the entry (two concurrent waits on one id share the channel).
+        let registry = WaiterRegistry::new();
+        let (sender, _rx) = registry.subscribe_with_sender("n1").await;
+        assert!(!registry.remove_if_orphaned("n1", &sender).await);
+        assert_eq!(registry.waiter_count().await, 1);
+    }
+
+    #[tokio::test]
+    async fn test_remove_if_orphaned_ignores_replaced_channel() {
+        // Sequential waits on ONE id: the first resolves (notify removes its channel),
+        // a second wait creates a FRESH channel, then the first stream's LATE drop
+        // fires cleanup. It must not kill the second wait's entry - identity differs.
+        let registry = WaiterRegistry::new();
+        let (sender1, rx1) = registry.subscribe_with_sender("n1").await;
+        registry.notify("n1", WaitEvent::Dismissed).await; // resolves + removes channel 1
+        let _ = rx1; // first client's receiver, now stale
+        drop(rx1);
+
+        let (_sender2, _rx2) = registry.subscribe_with_sender("n1").await; // fresh channel
+        assert_eq!(registry.waiter_count().await, 1);
+
+        // The first stream disconnects late: its stale sender must match nothing.
+        assert!(!registry.remove_if_orphaned("n1", &sender1).await);
+        assert_eq!(registry.waiter_count().await, 1, "second wait's entry survives");
+    }
+
+    #[tokio::test]
+    async fn test_remove_if_orphaned_two_concurrent_waits_drain_one_at_a_time() {
+        // Two waits share one channel. Each disconnect only removes the entry once the
+        // LAST receiver is gone (receiver_count guard).
+        let registry = WaiterRegistry::new();
+        let (sender, rx_a) = registry.subscribe_with_sender("n1").await;
+        let (_sender_b, rx_b) = registry.subscribe_with_sender("n1").await; // same channel
+        assert_eq!(registry.waiter_count().await, 1);
+
+        drop(rx_a);
+        assert!(!registry.remove_if_orphaned("n1", &sender).await); // rx_b still listens
+        assert_eq!(registry.waiter_count().await, 1);
+
+        drop(rx_b);
+        assert!(registry.remove_if_orphaned("n1", &sender).await);
+        assert_eq!(registry.waiter_count().await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_remove_if_orphaned_after_notify_is_noop() {
+        // notify() already removed the entry; a following guard drop double-remove is
+        // a harmless no-op (nothing to reconcile).
+        let registry = WaiterRegistry::new();
+        let (sender, rx) = registry.subscribe_with_sender("n1").await;
+        registry.notify("n1", WaitEvent::Dismissed).await;
+        drop(rx);
+        assert!(!registry.remove_if_orphaned("n1", &sender).await);
         assert_eq!(registry.waiter_count().await, 0);
     }
 

@@ -341,4 +341,93 @@ describe("IslandGroup (Model B)", () => {
     expect(screen.getByTestId("island-row-expand")).toBeInTheDocument();
     expect(body).toHaveAttribute("data-scrolls", "true");
   });
+
+  // --- Hitbox reporting (BUG B): the group must report on EVERY size-affecting state
+  // change, or the backend click-through region goes stale (visible-but-unclickable).
+  // jsdom boxes are zero, so we assert the CALL + rect SHAPE, never pixel values. ---
+
+  const rectShape = expect.objectContaining({
+    x: expect.any(Number),
+    y: expect.any(Number),
+    w: expect.any(Number),
+    h: expect.any(Number),
+  });
+
+  it("reports the shape hitbox on the initial compact spotlight", () => {
+    const onSettle = vi.fn();
+    const snap = snapshotOf([
+      rowOf(notif({ id: "a", title: "A" })),
+      rowOf(notif({ id: "b", title: "B" })),
+    ]);
+    render(
+      <IslandGroup snapshot={snap} onRowAction={noop} onRowActionId={noop} onDismiss={noop} onClearAll={noop} onSettle={onSettle} />
+    );
+    // snap("compact") calls onSettle synchronously during the mount layout effect.
+    expect(onSettle).toHaveBeenCalled();
+    expect(onSettle.mock.calls[0][0]).toEqual(rectShape);
+  });
+
+  it("re-reports the hitbox when an inline row expands and collapses (accordion growth)", () => {
+    const onSettle = vi.fn();
+    const snap = snapshotOf([
+      rowOf(notif({ id: "a", title: "A", actions: twoActions })),
+      rowOf(notif({ id: "b", title: "B" })),
+    ]);
+    render(
+      <IslandGroup snapshot={snap} onRowAction={noop} onRowActionId={noop} onDismiss={noop} onClearAll={noop} onSettle={onSettle} />
+    );
+    fireEvent.click(screen.getByTestId("island-spotlight")); // expand to the list
+
+    // Opening the accordion grows the shape -> a fresh report (via onExpandedRowChange).
+    const beforeOpen = onSettle.mock.calls.length;
+    fireEvent.click(screen.getAllByTestId("island-row-body")[0]);
+    expect(onSettle.mock.calls.length).toBeGreaterThan(beforeOpen);
+    const lastCall = onSettle.mock.calls[onSettle.mock.calls.length - 1];
+    expect(lastCall[0]).toEqual(rectShape);
+
+    // Collapsing it shrinks the shape -> another report.
+    const beforeClose = onSettle.mock.calls.length;
+    fireEvent.click(screen.getAllByTestId("island-row-body")[0]);
+    expect(onSettle.mock.calls.length).toBeGreaterThan(beforeClose);
+  });
+
+  it("re-reports the hitbox when the row set changes while the list is open (list growth)", () => {
+    const onSettle = vi.fn();
+    const two = snapshotOf([
+      rowOf(notif({ id: "a", title: "A" })),
+      rowOf(notif({ id: "b", title: "B" })),
+    ]);
+    const { rerender } = render(
+      <IslandGroup snapshot={two} onRowAction={noop} onRowActionId={noop} onDismiss={noop} onClearAll={noop} onSettle={onSettle} />
+    );
+    fireEvent.click(screen.getByTestId("island-spotlight")); // expand
+
+    const before = onSettle.mock.calls.length;
+    const three = snapshotOf([
+      rowOf(notif({ id: "a", title: "A" })),
+      rowOf(notif({ id: "b", title: "B" })),
+      rowOf(notif({ id: "c", title: "C" })),
+    ]);
+    rerender(
+      <IslandGroup snapshot={three} onRowAction={noop} onRowActionId={noop} onDismiss={noop} onClearAll={noop} onSettle={onSettle} />
+    );
+    // A notification arriving while the list is open must re-report the grown shape.
+    expect(onSettle.mock.calls.length).toBeGreaterThan(before);
+  });
+
+  it("wires aria-controls from the accordion toggle to its expansion region (a11y)", () => {
+    const snap = snapshotOf([
+      rowOf(notif({ id: "a", title: "A", actions: twoActions })),
+      rowOf(notif({ id: "b", title: "B" })),
+    ]);
+    render(
+      <IslandGroup snapshot={snap} onRowAction={noop} onRowActionId={noop} onDismiss={noop} onClearAll={noop} />
+    );
+    fireEvent.click(screen.getByTestId("island-spotlight"));
+    const body = screen.getAllByTestId("island-row-body")[0];
+    const controls = body.getAttribute("aria-controls");
+    expect(controls).toBe("island-row-expand-a");
+    fireEvent.click(body);
+    expect(screen.getByTestId("island-row-expand")).toHaveAttribute("id", controls!);
+  });
 });
