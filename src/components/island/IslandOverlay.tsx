@@ -178,9 +178,17 @@ export function IslandOverlay() {
   const layoutPosition = mode === "float" ? position : "center";
 
   // Hide the island window when it holds no island notification (D3: never resize
-  // the envelope, only show/hide).
+  // the envelope, only show/hide). ALSO reset notchHover: the backend's
+  // stop_tracking resets its reveal machine SILENTLY (no island:reveal false), so
+  // a hover that was live when the last notification ended would otherwise leak
+  // into the NEXT notification's collapse and reveal the pill with the cursor
+  // nowhere near the notch (T13 review MEDIUM). A freshly shown island must start
+  // concealed.
   useEffect(() => {
-    if (snapshot.count === 0) getCurrentWindow().hide();
+    if (snapshot.count === 0) {
+      setNotchHover(false);
+      getCurrentWindow().hide();
+    }
   }, [snapshot.count]);
 
   const single = snapshot.count === 1 ? snapshot.spotlight : null;
