@@ -1,4 +1,4 @@
-//! Notification panel window — a small positioned overlay instead of fullscreen.
+//! Notification panel window - a small positioned overlay instead of fullscreen.
 //!
 //! Platform strategy:
 //! - macOS: NSPanel via tauri-nspanel (non-activating, joins all Spaces, proper z-order)
@@ -30,7 +30,7 @@ tauri_nspanel::tauri_panel! {
 
 /// Panel dimensions in logical pixels.
 /// Width matches the notification card max-width.
-/// Height starts minimal — frontend resizes dynamically to fit content.
+/// Height starts minimal - frontend resizes dynamically to fit content.
 pub const PANEL_WIDTH: f64 = 400.0;
 pub const PANEL_INITIAL_HEIGHT: f64 = 10.0;
 
@@ -81,7 +81,7 @@ pub fn create_panel(app: &AppHandle) -> Result<(), String> {
     {
         Some(monitor) => calculate_panel_position(monitor),
         None => {
-            info!("No monitor info — using default panel position");
+            info!("No monitor info - using default panel position");
             PanelPosition { x: 1508.0, y: 12.0 }
         }
     };
@@ -272,13 +272,13 @@ pub(crate) fn get_cursor_monitor_info(app: &AppHandle) -> Option<MonitorInfo> {
         }
     }
 
-    info!("Cursor at ({}, {}) — no matching monitor found", cursor_pos.0, cursor_pos.1);
+    info!("Cursor at ({}, {}) - no matching monitor found", cursor_pos.0, cursor_pos.1);
     None
 }
 
-/// Half-open containment test in LOGICAL points — the T13 coordinate convention (see
+/// Half-open containment test in LOGICAL points - the T13 coordinate convention (see
 /// `overlay/hover.rs`, empirically verified on real hardware). `cursor` is Quartz global DISPLAY
-/// POINTS (logical, top-left origin — what `get_cursor_position` returns via `CGEvent::location`),
+/// POINTS (logical, top-left origin - what `get_cursor_position` returns via `CGEvent::location`),
 /// while `monitor.position()`/`size()` are PHYSICAL pixels; each monitor bound is divided by that
 /// monitor's own `scale_factor` to reach the same logical space before comparing.
 ///
@@ -367,7 +367,7 @@ mod tests {
 
     #[test]
     fn test_panel_position_retina_display() {
-        // MacBook Pro 14" — physical 3024×1964, scale 2.0
+        // MacBook Pro 14" - physical 3024×1964, scale 2.0
         let monitor = MonitorInfo {
             x: 0.0,
             y: 0.0,
@@ -444,7 +444,7 @@ mod tests {
     fn test_panel_dimensions_are_reasonable() {
         assert!(PANEL_WIDTH > 300.0, "Panel too narrow for notifications");
         assert!(PANEL_WIDTH < 500.0, "Panel too wide");
-        // Initial height is minimal — frontend resizes dynamically
+        // Initial height is minimal - frontend resizes dynamically
         assert!(PANEL_INITIAL_HEIGHT <= 20.0, "Initial height should be tiny");
     }
 

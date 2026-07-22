@@ -204,7 +204,7 @@ pub fn island_anchor_for(
 ///   on a non-notch display (an external monitor, or a non-notch Mac).
 ///
 /// Non-macOS has no notch, so `cursor_display_has_notch` is always false and this always resolves to
-/// `Float` — byte-identical to the prior non-macOS behavior. This is the fix for the reported
+/// `Float` - byte-identical to the prior non-macOS behavior. This is the fix for the reported
 /// regression: the island now follows the cursor's screen and adopts that screen's class, exactly as
 /// the top-right card follows the cursor.
 pub fn effective_island_mode(settings_mode: Mode, cursor_display_has_notch: bool) -> Mode {
@@ -609,7 +609,7 @@ fn load_island_settings(app: &AppHandle) -> crate::notification::settings::Islan
 ///
 /// This is the fix for the reported regression: the island now follows the cursor monitor exactly
 /// like the top-right card, instead of pinning to the built-in notched panel. The per-display mode is
-/// resolved here — `Float` settings force the float capsule everywhere; `Notch` settings are auto:
+/// resolved here - `Float` settings force the float capsule everywhere; `Notch` settings are auto:
 /// the under-notch layout on a notched display, the float capsule top-center on a non-notch display.
 fn reposition_island_on_main(app: &AppHandle) {
     let monitor = match super::panel::get_cursor_monitor_info(app)
@@ -654,7 +654,7 @@ fn cursor_display_has_notch(monitor: MonitorInfo) -> bool {
 /// (T17), else `None`. Correlates the notched screen (the only display whose `safeAreaInsets().top`
 /// is positive) to the cursor's monitor by LOGICAL width. Documented proxy: two displays of identical
 /// logical width would be ambiguous, but only the built-in carries a notch in the supported
-/// single-builtin configuration — strictly better than the prior "any notch => primary monitor"
+/// single-builtin configuration - strictly better than the prior "any notch => primary monitor"
 /// proxy. MUST run on the main thread (NSScreen read).
 #[cfg(target_os = "macos")]
 fn cursor_display_notch(monitor: MonitorInfo) -> Option<crate::overlay::notch::NotchGeometry> {

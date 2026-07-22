@@ -63,7 +63,9 @@
   transform-origin: top center;
   font-family:
     -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
-  filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.55));
+  /* Native-weight shadow: the mockup's 0.55 halo read as a dark wash on bright
+   wallpapers (hardware iteration 6). Tighter + lighter keeps depth on dark. */
+  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.3));
 }
 
 /* Hover lift (FR-6): 1.028 scale, top-anchored, 150ms after a 150ms open delay
@@ -170,7 +172,7 @@
   border-radius: 0 0 11px 11px;
   opacity: 0;
   pointer-events: none;
-  filter: drop-shadow(0 6px 16px rgba(0, 0, 0, 0.5));
+  filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.25));
 }
 .di-ambient[data-visible="true"] {
   opacity: 1;
