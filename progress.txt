@@ -342,3 +342,8 @@ Worktrees preserved: t5b, t6, t10, t11 (earlier 13 removed on user instruction).
   cutout height, accent dot / mini progress-ring in the right wing, no other content) -> hover
   reveals the T13 under-notch pill -> expanded unchanged. Hot-zone extends over the wings. T14
   worker dispatched (also folds in T13-review comment nits).
+- T14 REVIEW: CLEAN (state matrix walked; ambient dot geometry re-derived into the visible wing;
+  hot-zone tests proven non-vacuous; controlled-removal safe). 3 non-blocking follow-ups QUEUED for
+  the next Rust touch (avoid restarting the app mid-user-test): LOW pin AMBIENT_WING const in Rust
+  tests (drift guard), 2 NITs (dead param, redundant helper). Scope observation: IslandGroup (N>1)
+  has no ambient/hover-reveal - conscious boundary, surfaced to user for a design call.
