@@ -56,7 +56,7 @@ describe("IslandGroup (Model B)", () => {
       rowOf(notif({ id: "a", sender: "ci", title: "Deploy", priority: "high" })),
       rowOf(notif({ id: "b", sender: "gh", title: "Review" })),
     ]);
-    render(<IslandGroup snapshot={snap} onRowAction={noop} onDismiss={noop} />);
+    render(<IslandGroup snapshot={snap} onRowAction={noop} onDismiss={noop} onClearAll={noop} />);
 
     expect(screen.getByTestId("island-spotlight")).toBeInTheDocument();
     expect(screen.getByTestId("island-badge")).toHaveTextContent("2");
@@ -69,7 +69,7 @@ describe("IslandGroup (Model B)", () => {
       rowOf(notif({ id: "a", title: "A" })),
       rowOf(notif({ id: "b", title: "B" })),
     ]);
-    render(<IslandGroup snapshot={snap} onRowAction={noop} onDismiss={noop} />);
+    render(<IslandGroup snapshot={snap} onRowAction={noop} onDismiss={noop} onClearAll={noop} />);
 
     fireEvent.click(screen.getByTestId("island-spotlight"));
     expect(screen.getByTestId("island-list")).toBeInTheDocument();
@@ -86,7 +86,7 @@ describe("IslandGroup (Model B)", () => {
       rowOf(notif({ id: "b", title: "B" })),
       rowOf(notif({ id: "c", title: "C" })),
     ]);
-    render(<IslandGroup snapshot={snap} onRowAction={noop} onDismiss={noop} />);
+    render(<IslandGroup snapshot={snap} onRowAction={noop} onDismiss={noop} onClearAll={noop} />);
     fireEvent.click(screen.getByTestId("island-spotlight"));
 
     const rows = screen.getAllByTestId("island-row");
@@ -100,7 +100,7 @@ describe("IslandGroup (Model B)", () => {
       rowOf(notif({ id: `n${i}`, title: `T${i}` }))
     );
     const { rerender } = render(
-      <IslandGroup snapshot={snapshotOf(six)} onRowAction={noop} onDismiss={noop} />
+      <IslandGroup snapshot={snapshotOf(six)} onRowAction={noop} onDismiss={noop} onClearAll={noop} />
     );
     fireEvent.click(screen.getByTestId("island-spotlight"));
     expect(screen.getByTestId("island-list-body")).toHaveAttribute(
@@ -110,7 +110,7 @@ describe("IslandGroup (Model B)", () => {
 
     const seven = [...six, rowOf(notif({ id: "n6", title: "T6" }))];
     rerender(
-      <IslandGroup snapshot={snapshotOf(seven)} onRowAction={noop} onDismiss={noop} />
+      <IslandGroup snapshot={snapshotOf(seven)} onRowAction={noop} onDismiss={noop} onClearAll={noop} />
     );
     // still expanded; 7 rows -> scroll + fade
     expect(screen.getByTestId("island-list-body")).toHaveAttribute(
@@ -121,7 +121,7 @@ describe("IslandGroup (Model B)", () => {
 
   it("shows the merged count in the list header", () => {
     const snap = snapshotOf([rowOf(notif({ id: "a", title: "A" }))], 3); // 1 row, 3 merged
-    render(<IslandGroup snapshot={snap} onRowAction={noop} onDismiss={noop} />);
+    render(<IslandGroup snapshot={snap} onRowAction={noop} onDismiss={noop} onClearAll={noop} />);
     fireEvent.click(screen.getByTestId("island-spotlight"));
     expect(screen.getByTestId("island-list-count")).toHaveTextContent("1 · 3 merged");
   });
@@ -133,7 +133,7 @@ describe("IslandGroup (Model B)", () => {
       rowOf(notif({ id: "a", title: "A", timeout: { seconds: 5 } })),
       rowOf(notif({ id: "b", title: "B", timeout: { seconds: 5 } })),
     ]);
-    render(<IslandGroup snapshot={snap} onRowAction={noop} onDismiss={onDismiss} />);
+    render(<IslandGroup snapshot={snap} onRowAction={noop} onDismiss={onDismiss} onClearAll={noop} />);
 
     // Open the list -> timers paused.
     fireEvent.click(screen.getByTestId("island-spotlight"));
@@ -154,7 +154,7 @@ describe("IslandGroup (Model B)", () => {
       rowOf(notif({ id: "wait", title: "Approve?", timeout: { seconds: 3 } }), true),
       rowOf(notif({ id: "crit", title: "Down", priority: "critical", timeout: { seconds: 3 } })),
     ]);
-    render(<IslandGroup snapshot={snap} onRowAction={noop} onDismiss={onDismiss} />);
+    render(<IslandGroup snapshot={snap} onRowAction={noop} onDismiss={onDismiss} onClearAll={noop} />);
     // Compact (timers active), advance well past their timeout.
     act(() => vi.advanceTimersByTime(60000));
     expect(onDismiss).not.toHaveBeenCalled();
@@ -166,7 +166,7 @@ describe("IslandGroup (Model B)", () => {
       rowOf(notif({ id: "b", title: "B" })),
     ]);
     const { container } = render(
-      <IslandGroup snapshot={snap} onRowAction={noop} onDismiss={noop} />
+      <IslandGroup snapshot={snap} onRowAction={noop} onDismiss={noop} onClearAll={noop} />
     );
     fireEvent.click(screen.getByTestId("island-spotlight"));
     // Model A: prev/next cycle navigation must not exist.
@@ -184,11 +184,51 @@ describe("IslandGroup (Model B)", () => {
       rowOf(notif({ id: "a", title: "A" })),
       rowOf(notif({ id: "b", title: "B" })),
     ]);
-    render(<IslandGroup snapshot={snap} onRowAction={onRowAction} onDismiss={noop} />);
+    render(<IslandGroup snapshot={snap} onRowAction={onRowAction} onDismiss={noop} onClearAll={noop} />);
     fireEvent.click(screen.getByTestId("island-spotlight"));
     fireEvent.click(screen.getAllByTestId("island-row-action")[0]);
     expect(onRowAction).toHaveBeenCalledWith(
       expect.objectContaining({ id: "a" })
     );
+  });
+
+  it("the header Clear all button invokes the dismiss-all path (T15)", () => {
+    const onClearAll = vi.fn();
+    const snap = snapshotOf([
+      rowOf(notif({ id: "a", title: "A" })),
+      rowOf(notif({ id: "b", title: "B" })),
+    ]);
+    render(
+      <IslandGroup
+        snapshot={snap}
+        onRowAction={noop}
+        onDismiss={noop}
+        onClearAll={onClearAll}
+      />
+    );
+    fireEvent.click(screen.getByTestId("island-spotlight"));
+    fireEvent.click(screen.getByTestId("island-list-clear"));
+    expect(onClearAll).toHaveBeenCalledTimes(1);
+  });
+
+  it("the per-row close dismisses EXACTLY that row's id, never crossing (A4, T15)", () => {
+    const onDismiss = vi.fn();
+    const snap = snapshotOf([
+      rowOf(notif({ id: "a", title: "A" })),
+      rowOf(notif({ id: "b", title: "B" })),
+    ]);
+    render(
+      <IslandGroup
+        snapshot={snap}
+        onRowAction={noop}
+        onDismiss={onDismiss}
+        onClearAll={noop}
+      />
+    );
+    fireEvent.click(screen.getByTestId("island-spotlight"));
+    // The SECOND row's x resolves only "b" - the per-id waiter identity (A4).
+    fireEvent.click(screen.getAllByTestId("island-row-close")[1]);
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+    expect(onDismiss).toHaveBeenCalledWith("b");
   });
 });

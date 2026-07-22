@@ -69,6 +69,20 @@ export function IslandOverlay() {
     );
   }, []);
 
+  // Clear every active notification (T15, the list "Clear all"). Uses the
+  // registered `dismiss_all` command rather than a per-row loop over snapshot.rows:
+  // the loop would only dismiss the visible survivors and leave MERGED duplicates
+  // behind (dedupe re-promotes the next-ranked duplicate into a row, so the list
+  // would not empty in one pass - manager.rs `merged = count - rows.len()`).
+  // dismiss_all clears the manager atomically and resolves every waiter as
+  // Dismissed (exit 1). Tradeoff (documented): it also clears any top-right CARD
+  // notifications, acceptable for a deliberate bulk "Clear all".
+  const handleClearAll = useCallback(() => {
+    core.invoke("dismiss_all").catch((err) =>
+      console.error("[syncfu] dismiss_all failed:", err)
+    );
+  }, []);
+
   // A Model B row action: fire the primary action if present, else dismiss. This
   // resolves exactly that row's waiter (never crosses ids - A4).
   const handleRowAction = useCallback(
@@ -216,6 +230,7 @@ export function IslandOverlay() {
           snapshot={snapshot}
           onRowAction={handleRowAction}
           onDismiss={handleDismiss}
+          onClearAll={handleClearAll}
           notchGeometry={notchGeometry}
           onSettle={reportHitbox}
         />

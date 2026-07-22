@@ -307,11 +307,54 @@
 
 /* ---- Expanded card ------------------------------------------------------- */
 .di-expanded {
+  position: relative;
   width: 100%;
   padding: 11px 0 12px;
   display: flex;
   flex-direction: column;
   gap: 9px;
+}
+
+/* Hover-visible close (T15), mirroring the card's `.notification-dismiss` circular
+   anatomy and reusing the SAME `--s-close-*` overrides (published on `.di-island`).
+   position:absolute keeps it out of flow so the at-rest render is byte-identical
+   (opacity:0 => zero pixels => existing island-render baselines unchanged). It is
+   the primary dismissal path for CRITICAL no-action notifications, which otherwise
+   never leave the island. Reduced-motion drops the fade (still shows on hover). */
+.di-close {
+  position: absolute;
+  top: 4px;
+  right: 2px;
+  z-index: 1;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  background: var(--s-close-bg, rgba(255, 255, 255, 0.08));
+  border: 1px solid var(--s-close-border-color, rgba(255, 255, 255, 0.14));
+  color: var(--s-close-color, #dfe2e8);
+  opacity: 0;
+  transition: opacity 150ms ease, background 150ms ease;
+}
+.di-island:hover .di-close,
+.di-close:focus-visible {
+  opacity: 1;
+}
+.di-close:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+.di-light-content .di-close {
+  background: var(--s-close-bg, rgba(0, 0, 0, 0.06));
+  border-color: var(--s-close-border-color, rgba(0, 0, 0, 0.12));
+  color: var(--s-close-color, rgba(0, 0, 0, 0.6));
+}
+@media (prefers-reduced-motion: reduce) {
+  .di-close {
+    transition: none;
+  }
 }
 
 .di-erow {
@@ -717,6 +760,30 @@
   border-radius: 999px;
   color: #cfd3db;
 }
+/* "Clear all" (T15): a persistent text button beside the count -> dismiss-all.
+   Text-only so it reads as secondary to the count/collapse chrome. */
+.di-list-clear {
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 6px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: #9aa4b4;
+  cursor: pointer;
+}
+.di-list-clear:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #eef0f4;
+}
+.di-light-content .di-list-clear {
+  color: rgba(0, 0, 0, 0.5);
+}
+.di-light-content .di-list-clear:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: rgba(0, 0, 0, 0.85);
+}
 .di-list-collapse {
   width: 24px;
   height: 24px;
@@ -765,6 +832,7 @@
 }
 
 .di-lrow {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -846,4 +914,49 @@
   color: #0a0a0a;
   background: var(--acc);
   box-shadow: 0 2px 12px -3px var(--acc);
+  transition: transform 150ms ease;
+}
+
+/* Per-row dismiss (T15): a small hover-visible secondary x at the row's right
+   edge. absolute + opacity:0 at rest keeps the list layout (and the
+   island-group-list baseline) unchanged; on row hover the primary action button
+   slides left (transform, no reflow) to reveal it. Resolves exactly this row's
+   waiter (A4). Reduced-motion drops both the fade and the slide. */
+.di-lrow:hover .di-lrow-act {
+  transform: translateX(-24px);
+}
+.di-lrow-close {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.1);
+  color: #dfe2e8;
+  opacity: 0;
+  transition: opacity 150ms ease, background 150ms ease;
+}
+.di-lrow:hover .di-lrow-close,
+.di-lrow-close:focus-visible {
+  opacity: 1;
+}
+.di-lrow-close:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+.di-light-content .di-lrow-close {
+  background: rgba(0, 0, 0, 0.08);
+  color: rgba(0, 0, 0, 0.6);
+}
+@media (prefers-reduced-motion: reduce) {
+  .di-lrow-act,
+  .di-lrow-close {
+    transition: none;
+  }
 }

@@ -381,7 +381,27 @@ pub fn run() {
         Target::new(TargetKind::Stdout),
     ];
 
-    let mut builder = tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+
+    // Single-instance guard MUST be registered FIRST (tauri v2 requirement): it kills
+    // any second launch before the rest of setup runs, so a duplicate can never squat
+    // beside the first instance with a dead HTTP bind on :9868 (the observed bug where
+    // dev + prod coexisted). The callback fires in the EXISTING instance when a second
+    // launch is attempted - focus/show its main window so the user sees the live app.
+    // Desktop-only (the plugin is `#![cfg(not(any(android, ios)))]`).
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            info!("Second instance launched; focusing the existing main window");
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }));
+    }
+
+    builder = builder
         .plugin(
             tauri_plugin_log::Builder::new()
                 .targets(log_targets)
@@ -451,7 +471,21 @@ pub fn run() {
             };
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = server::http::start_server(server_state, 9868).await {
-                    error!("HTTP server failed: {e}");
+                    // LOUD (T15): :9868 is the app's ONLY inbound control surface. If it
+                    // cannot bind, the overlay UI still runs but `syncfu send` can never
+                    // reach THIS process - a silent, confusing half-alive state. The
+                    // single-instance guard above prevents the duplicate-instance cause,
+                    // so reaching here means an EXTERNAL port conflict. No exit logic by
+                    // design (the app remains useful as an overlay host); just make the
+                    // failure unmistakable in the log AND on stderr.
+                    error!(
+                        "FATAL: HTTP server on :9868 failed to bind ({e}). syncfu is running \
+                         WITHOUT its CLI bridge; `syncfu send` will not reach this instance. \
+                         Free the port or quit the process holding it."
+                    );
+                    eprintln!(
+                        "[syncfu] FATAL: HTTP server on :9868 failed to bind: {e}. CLI bridge is DOWN."
+                    );
                 }
             });
 

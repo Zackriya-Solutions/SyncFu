@@ -61,6 +61,8 @@ interface IslandGroupProps {
   readonly onRowAction: (row: IslandRow) => void;
   /** Dismiss a single notification by id (auto-dismiss + row dismiss). */
   readonly onDismiss: (id: string) => void;
+  /** Clear every island notification (T15, the list "Clear all"). */
+  readonly onClearAll: () => void;
   /** Appearance/mode OVERRIDES for the render/e2e harness. Omitted in production
    *  (values come from the settings store). */
   readonly appearance?: IslandAppearance;
@@ -78,6 +80,7 @@ export function IslandGroup({
   snapshot,
   onRowAction,
   onDismiss,
+  onClearAll,
   appearance: appearanceProp,
   mode: modeProp,
   notchGeometry = null,
@@ -228,6 +231,8 @@ export function IslandGroup({
             snapshot={snapshot}
             onCollapse={() => setExpanded(false)}
             onRowAction={onRowAction}
+            onRowDismiss={onDismiss}
+            onClearAll={onClearAll}
           />
         ) : (
           spot && (

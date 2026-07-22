@@ -22,7 +22,6 @@ import {
   createMorphController,
   effectiveIslandSettings,
   shouldReveal,
-  shouldShowAmbient,
   type IslandState,
   type MorphController,
   type NotchGeometry,
@@ -373,7 +372,10 @@ export const Island = forwardRef<IslandHandle, IslandProps>(function Island(
   // indicator shows in its place (below). `controlled` (harness/tests) does NOT force reveal: fixtures
   // pick the ambient vs revealed state via `notchHover`, mirroring production faithfully.
   const revealed = shouldReveal(underNotch, expanded, notchHover);
-  const ambient = shouldShowAmbient(underNotch, expanded, notchHover);
+  // Ambient wings show in the pill's place iff we are under-notch AND concealed -
+  // the exact complement of `revealed`, inlined here (T14 follow-up) since revealed
+  // is already computed one line up.
+  const ambient = underNotch && !revealed;
 
   // Re-report the hitbox whenever the reveal state flips. Under reduced motion the wrapper has NO
   // CSS transition, so onTransitionEnd never fires and the hitbox would go stale (a stale revealed-
@@ -423,7 +425,11 @@ export const Island = forwardRef<IslandHandle, IslandProps>(function Island(
         </svg>
         <div className="di-content" ref={contentRef}>
           {expanded ? (
-            <IslandExpanded notification={notification} onAction={onAction} />
+            <IslandExpanded
+              notification={notification}
+              onAction={onAction}
+              onDismiss={onDismiss}
+            />
           ) : (
             <IslandCompact notification={notification} />
           )}
