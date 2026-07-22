@@ -16,14 +16,20 @@
 //! the window), so "poll while the window is shown" == "poll while snapshot count > 0". A hidden
 //! (count 0) island costs zero idle CPU.
 //!
-//! COORDINATE CONVENTION (T13 fix, empirically verified on real hardware - see the probe numbers in
-//! the tests below). `panel::get_cursor_position` returns `CGEvent::location`, which is in Quartz
-//! GLOBAL DISPLAY POINTS (logical, top-left origin) - NOT physical pixels. `window.outer_position()`
-//! returns PHYSICAL pixels. The T12 code compared `(cursor - origin_physical) / scale`, mixing a
-//! logical cursor with a physical origin; on any Retina (2x) display the result was wrong and the
-//! window never became interactive ("still not touchable"). The fix converts the window origin to
-//! LOGICAL (`outer_position / scale`) and compares everything in logical points, end to end - the
-//! same space the frontend's `getBoundingClientRect` hitbox already lives in.
+//! COORDINATE CONVENTION (T13 origin, T20 hardened). `panel::get_cursor_position` returns
+//! `CGEvent::location`, in Quartz GLOBAL DISPLAY POINTS (logical, top-left origin) - NOT physical
+//! pixels - the same space the frontend's `getBoundingClientRect` hitbox lives in. The window origin
+//! must be in that same logical space to difference against it.
+//!
+//! T13 reached logical by reading `window.outer_position()` (PHYSICAL) and dividing by
+//! `scale_factor()`. That round-trip is fragile across a CROSS-DISPLAY move on a 2x display: tao's
+//! physical origin and the reported scale can be momentarily STALE or from the wrong display
+//! mid-move, so the divided origin is wrong and the hitbox misses ("not touchable" on the notched
+//! built-in after the window was moved between displays). T20 removes the conversion entirely: the
+//! backend SETS the window position as `Position::Logical` in `reposition_island_on_main` and STORES
+//! that exact logical origin (`ISLAND_ORIGIN`); window-relative is then a plain subtraction - no
+//! `outer_position`, no scale division. Until the first reposition stores an origin the tick fails
+//! closed (click-through). See the real-hardware dual-display fixtures in the tests below.
 //!
 //! NOTE (fixed in T17): `panel::get_cursor_monitor_info` used to compare this same logical-points
 //! cursor against `monitor.position()`/`size()` (PHYSICAL pixels); on a Retina secondary monitor
@@ -35,10 +41,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter};
 
-use super::island::{reflow_island, set_island_interactive, ISLAND_LABEL};
-use super::panel::{cursor_monitor_info, get_cursor_position, MonitorInfo};
+use super::island::{set_island_interactive, ISLAND_LABEL};
+use super::panel::get_cursor_position;
 
 /// Poll interval (~10Hz). Cheap while notifications exist; never runs while the island is hidden.
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
@@ -81,6 +87,12 @@ pub struct Hitbox {
 
 /// The frontend-reported shape hitbox (the true morphing-shape bounds). `None` until first reported.
 static HITBOX: Mutex<Option<Hitbox>> = Mutex::new(None);
+/// The island window's LOGICAL origin (top-left, global Quartz points) exactly as the backend SET it
+/// via `Position::Logical` in `reposition_island_on_main` (T20). Stored at set-time so the tick reads
+/// window-relative coords by plain subtraction, never round-tripping through `outer_position()`
+/// (physical) / `scale_factor()`, which can be stale or from the wrong display mid cross-display move
+/// on a 2x screen. `None` until the first reposition; the tick then fails closed (click-through).
+static ISLAND_ORIGIN: Mutex<Option<(f64, f64)>> = Mutex::new(None);
 /// The backend-computed physical-notch region (window-relative logical). `Some` only in notch mode
 /// with a known cutout; `None` in float / non-notch mode (no reveal there - the pill stays visible).
 static NOTCH_REGION: Mutex<Option<Hitbox>> = Mutex::new(None);
@@ -91,26 +103,6 @@ static INTERACTIVE: AtomicBool = AtomicBool::new(false);
 /// The reveal state machine (notch mode). Starts concealed; a fresh arrival announces EXPANDED, which
 /// the frontend keeps visible regardless of this flag, so a concealed start never hides an arrival.
 static REVEAL: Mutex<RevealMachine> = Mutex::new(RevealMachine::CONCEALED);
-/// The monitor the cursor was last observed on, for display-follow (T18). `None` before the first
-/// observation of a show (seeded on the first tick, which never repositions since the show already
-/// placed the island). Reset on `stop_tracking` so each show re-seeds cleanly.
-static CURSOR_MONITOR: Mutex<Option<MonitorKey>> = Mutex::new(None);
-
-/// A stable identity for a monitor: its rounded logical-ish bounds (origin + size in the raw
-/// physical values `MonitorInfo` carries). Two ticks on the same physical display yield identical
-/// API values, so exact equality is a reliable same-display test; a different display differs in at
-/// least one bound. Rounded to integers so the `PartialEq` is on whole pixels, not raw floats.
-pub type MonitorKey = (i64, i64, i64, i64);
-
-/// Derive the stable identity key of a monitor.
-fn monitor_key(m: MonitorInfo) -> MonitorKey {
-    (
-        m.x.round() as i64,
-        m.y.round() as i64,
-        m.width.round() as i64,
-        m.height.round() as i64,
-    )
-}
 
 /// Reveal state: whether the pill is currently revealed, plus a pending conceal deadline once the
 /// cursor has left the hot zone (the notch region ∪ the pill).
@@ -133,22 +125,19 @@ pub fn point_in_rect(point: (f64, f64), r: Hitbox) -> bool {
     point.0 >= r.x && point.0 < r.x + r.w && point.1 >= r.y && point.1 < r.y + r.h
 }
 
-/// Convert a global-logical cursor and a PHYSICAL window origin into a window-relative LOGICAL point.
-/// This is the T13 coordinate-convention fix: `cursor` is already logical (Quartz points), so only
-/// the window origin needs dividing by `scale`; the difference is then logical. A non-positive scale
-/// (never expected) yields `None` and the caller fails closed (stays click-through / concealed).
-pub fn window_relative(
+/// Window-relative LOGICAL point = a global-logical cursor minus the window's STORED logical origin
+/// (T20). Both operands live in the same Quartz-points space the frontend `getBoundingClientRect`
+/// hitbox uses, so this is a plain subtraction - no physical `outer_position` and no scale division
+/// that could go stale mid cross-display move. The stored origin is exactly the value the backend
+/// passed to `Position::Logical` (the equality invariant the tests below pin), so the two never drift.
+pub fn window_relative_from_origin(
     cursor_logical: (f64, f64),
-    window_origin_physical: (f64, f64),
-    scale: f64,
-) -> Option<(f64, f64)> {
-    if scale <= 0.0 {
-        return None;
-    }
-    Some((
-        cursor_logical.0 - window_origin_physical.0 / scale,
-        cursor_logical.1 - window_origin_physical.1 / scale,
-    ))
+    origin_logical: (f64, f64),
+) -> (f64, f64) {
+    (
+        cursor_logical.0 - origin_logical.0,
+        cursor_logical.1 - origin_logical.1,
+    )
 }
 
 /// Compute the physical-notch hover region in window-relative LOGICAL px. The island window is
@@ -199,34 +188,19 @@ pub fn reveal_step(m: RevealMachine, in_hot: bool, now: Instant, grace: Duration
     }
 }
 
-/// Pure display-follow edge detector (T18). Given the previously tracked monitor and the cursor's
-/// CURRENT monitor, decide the next tracked value and whether a reposition is due. Rules:
-/// - a `None` current (cursor read failed, or the cursor is momentarily in a gap between monitors)
-///   is INERT: it never repositions and never clears the tracked monitor, so a transient dropout at
-///   a display boundary cannot cause a reposition storm (the hysteresis);
-/// - the FIRST observation (`prev == None`) only seeds the tracked monitor - the show already placed
-///   the island, so re-placing on the seeding tick would be redundant;
-/// - the same monitor short-circuits (the common every-tick case): no reposition;
-/// - only a Some -> different-Some change repositions.
-/// Deterministic in its inputs, so the whole policy is unit-testable without a real display.
-pub fn monitor_change_step(
-    prev: Option<MonitorKey>,
-    current: Option<MonitorKey>,
-) -> (Option<MonitorKey>, bool) {
-    match current {
-        None => (prev, false),
-        Some(cur) => match prev {
-            None => (Some(cur), false),
-            Some(p) if p == cur => (Some(p), false),
-            Some(_) => (Some(cur), true),
-        },
-    }
-}
-
 /// Store the latest shape hitbox reported by the frontend. Replaces any previous value.
 pub fn set_hitbox(hb: Hitbox) {
     if let Ok(mut guard) = HITBOX.lock() {
         *guard = Some(hb);
+    }
+}
+
+/// Store the island window's LOGICAL origin as the backend SET it (`Position::Logical`). Called from
+/// `island.rs` immediately after `set_position` so the tick's window-relative math (T20) reads the
+/// authoritative origin instead of a physical `outer_position()` that can be stale mid-move.
+pub fn set_island_origin(x: f64, y: f64) {
+    if let Ok(mut guard) = ISLAND_ORIGIN.lock() {
+        *guard = Some((x, y));
     }
 }
 
@@ -266,28 +240,24 @@ pub fn stop_tracking(app: &AppHandle) {
     if let Ok(mut guard) = REVEAL.lock() {
         *guard = RevealMachine::CONCEALED;
     }
-    // Forget the tracked monitor so the next show re-seeds from its own first tick (T18): the show
-    // path already places the island, so a stale key must not trigger a spurious reflow.
-    if let Ok(mut guard) = CURSOR_MONITOR.lock() {
-        *guard = None;
-    }
 }
 
-/// Read the cursor in window-relative LOGICAL px (the T13 convention), or `None` if any input is
-/// missing / degenerate (caller then stays click-through and concealed).
-fn cursor_window_relative(app: &AppHandle) -> Option<(f64, f64)> {
+/// Read the cursor in window-relative LOGICAL px (T20), or `None` if the cursor read fails or no
+/// origin has been stored yet (before the first reposition). In either case the caller fails closed -
+/// stays click-through and concealed. `get_cursor_position` is logical (Quartz points); the stored
+/// origin is the logical value the backend SET, so the difference is logical with no scale round-trip.
+fn cursor_window_relative() -> Option<(f64, f64)> {
     let cursor = get_cursor_position()?; // logical points, top-left origin (CGEvent::location)
-    let window = app.get_webview_window(ISLAND_LABEL)?;
-    let origin = window.outer_position().ok()?; // PHYSICAL pixels
-    let scale = window.scale_factor().unwrap_or(1.0);
-    window_relative(cursor, (origin.x as f64, origin.y as f64), scale)
+    let origin = ISLAND_ORIGIN.lock().ok().and_then(|g| *g)?; // logical, as SET; None => fail closed
+    Some(window_relative_from_origin(cursor, origin))
 }
 
 /// One poll step: read the cursor, then (1) toggle interactivity when the cursor enters/leaves the
-/// pill hitbox, (2) drive the reveal machine from the notch region ∪ pill hot zone, and (3) follow
-/// the cursor's display, repositioning a visible island only when its monitor actually changes (T18).
+/// pill hitbox, and (2) drive the reveal machine from the notch region ∪ pill hot zone. The island
+/// does NOT follow the cursor (T20 stay-put): it is placed only by a genuinely new notification
+/// (`show_island`), never by mere cursor travel.
 fn tick(app: &AppHandle) {
-    let rel = match cursor_window_relative(app) {
+    let rel = match cursor_window_relative() {
         Some(p) => p,
         None => return,
     };
@@ -316,78 +286,61 @@ fn tick(app: &AppHandle) {
             let _ = app.emit_to(ISLAND_LABEL, REVEAL_EVENT, next.revealed);
         }
     }
-
-    // (3) Display-follow (T18): if the cursor moved to a DIFFERENT monitor while the island is
-    // visible, re-run the placement so a SHOWING island follows to the new display live (reflow
-    // re-emits `island:geometry` + moves the window), instead of only refreshing on the next show.
-    // Debounced to the monitor-CHANGE edge by `monitor_change_step`; a same-monitor tick or a
-    // transient cursor dropout is inert (no reposition storm at a boundary). `cursor_monitor_info`
-    // does a second cheap CGEvent read (the same off-main kind steps 1-2 above use) plus a monitor
-    // enumeration, gated to only run while the island is visible (R-PERF: nothing polls when hidden).
-    // NOTE: that enumeration (Tauri `available_monitors`) runs here off the main thread at the ~10Hz
-    // poll rate. It is a cheap read-only AppKit query and matches existing codebase practice (the
-    // panel tracker enumerates the same way); acceptable at this cadence while the island is shown.
-    let current_monitor = cursor_monitor_info(app).map(monitor_key);
-    let prev_monitor = CURSOR_MONITOR.lock().ok().and_then(|g| *g);
-    let (next_monitor, changed) = monitor_change_step(prev_monitor, current_monitor);
-    if let Ok(mut guard) = CURSOR_MONITOR.lock() {
-        *guard = next_monitor;
-    }
-    if changed {
-        reflow_island(app);
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    // --- Coordinate convention, encoding the T13 hardware probe (this machine, macOS 26.5) ---
+    // --- Window-relative math on the USER's real dual-display layout (T20) ---
     //
-    // Real probe output (scratchpad/probe.swift against the live CGEvent/NSScreen APIs):
-    //   CGEvent.location            = (752.098, 711.063)   <- what get_cursor_position() returns
-    //   NSEvent.mouseLocation       = (752.098, 244.938)   <- x IDENTICAL, y flipped (956 - 711.063)
-    //   NSScreen.main frame         = 1470 x 956 POINTS
-    //   NSScreen.main backing frame = 2940 x 1912 PIXELS,  backingScaleFactor = 2.0
+    // The reproduction rig (screen 1 = notched built-in @2x, screen 2 = external @1x):
+    //   built-in : 1470 x 956 LOGICAL, backingScaleFactor 2.0, global logical origin (0, 0)
+    //   external : 1920 x 1080 LOGICAL, scale 1.0,           global logical origin (-1920, -84)
     //
-    // The cursor x (752) lies inside the LOGICAL width [0, 1470], not the physical [0, 2940], and it
-    // matches NSEvent.mouseLocation.x exactly (documented points). => CGEvent::location is in LOGICAL
-    // points, top-left origin. window.outer_position() is PHYSICAL pixels. So the window origin must
-    // be divided by scale before differencing; the cursor must NOT be.
+    // The island envelope is 600 wide and centered on whichever display it is placed on, so the
+    // backend SETS (and STORES, T20) its logical origin:
+    //   on built-in : x = 0    + (1470 - 600) / 2 = 435,  y = 0
+    //   on external : x = -1920 + (1920 - 600) / 2 = -1260, y = -84
+    //
+    // window_relative_from_origin is a plain subtraction of that STORED origin from the (already
+    // logical) cursor. INVARIANT: the stored origin equals exactly what `reposition_island_on_main`
+    // passed to `Position::Logical` (set-time capture), so no `outer_position()`/`scale_factor()`
+    // round-trip exists to go stale mid cross-display move - the class of bug that made the island
+    // "not touchable" on the notched built-in at 2x after it had been moved between displays.
+    const ORIGIN_BUILTIN: (f64, f64) = (435.0, 0.0);
+    const ORIGIN_EXTERNAL: (f64, f64) = (-1260.0, -84.0);
 
     #[test]
-    fn window_relative_converts_physical_origin_to_logical_before_differencing() {
-        // 600-wide envelope centered on the 1470-logical built-in panel => window logical x =
-        // (1470-600)/2 = 435, i.e. PHYSICAL outer_position x = 870 at scale 2.0. A cursor at global
-        // logical (735, 40) - right over the centered pill - is window-relative logical (300, 40).
-        let rel = window_relative((735.0, 40.0), (870.0, 0.0), 2.0).unwrap();
-        assert_eq!(rel, (300.0, 40.0));
-    }
-
-    #[test]
-    fn window_relative_bug_repro_old_formula_would_be_wrong() {
-        // The T12 formula was (cursor - origin_physical) / scale. With the numbers above that is
-        // (735 - 870) / 2 = -67.5, a NEGATIVE window-relative x that no hitbox contains -> the window
-        // never turned interactive ("still not touchable"). The corrected value is +300.
-        let wrong = (735.0 - 870.0) / 2.0;
-        let right = window_relative((735.0, 40.0), (870.0, 0.0), 2.0).unwrap().0;
-        assert!(wrong < 0.0);
-        assert_eq!(right, 300.0);
-        assert_ne!(wrong, right);
-    }
-
-    #[test]
-    fn window_relative_at_1x_is_a_plain_difference() {
-        // Non-Retina: scale 1.0, so physical == logical and the origin divide is a no-op.
+    fn window_relative_is_plain_subtraction_of_the_stored_origin() {
+        // Cursor over the centered pill on the built-in: global logical = origin + (300, 40).
         assert_eq!(
-            window_relative((735.0, 40.0), (435.0, 0.0), 1.0).unwrap(),
+            window_relative_from_origin((735.0, 40.0), ORIGIN_BUILTIN),
+            (300.0, 40.0)
+        );
+        // Same on the negative-origin external display: (-1260 + 300, -84 + 40) = (-960, -44) cursor
+        // maps back to window-relative (300, 40). Negative origins must not confuse the subtraction.
+        assert_eq!(
+            window_relative_from_origin((-960.0, -44.0), ORIGIN_EXTERNAL),
             (300.0, 40.0)
         );
     }
 
     #[test]
-    fn window_relative_non_positive_scale_fails_closed() {
-        assert_eq!(window_relative((735.0, 40.0), (870.0, 0.0), 0.0), None);
+    fn stored_origin_is_immune_to_a_stale_or_wrong_scale_factor() {
+        // The T20 root cause: after a cross-display move, `outer_position()` (physical) and
+        // `scale_factor()` can momentarily report a STALE origin or the WRONG display's scale. The
+        // old path divided the physical origin by that scale, so reading scale 1.0 while the window is
+        // really on the 2x built-in (physical origin 870) gives 735 - 870/1 = -135, a negative x no
+        // hitbox contains ("not touchable"). The stored LOGICAL origin carries no scale term, so the
+        // same cursor still resolves correctly - this is the fix.
+        let cursor = (735.0, 40.0);
+        let stale_physical_over_wrong_scale = cursor.0 - 870.0 / 1.0; // old path, stale scale => -135
+        assert!(stale_physical_over_wrong_scale < 0.0);
+        assert_eq!(
+            window_relative_from_origin(cursor, ORIGIN_BUILTIN),
+            (300.0, 40.0)
+        );
     }
 
     // --- Rectangle containment (half-open) ---
@@ -397,6 +350,42 @@ mod tests {
         w: 183.0,
         h: 34.0,
     };
+
+    // The dual-display hitbox matrix: island on EACH display x cursor on EACH display. The pill is
+    // window-relative, so its rect is identical wherever the window sits; only the stored origin (the
+    // window's placement) shifts the global cursor that maps INTO the pill. This pins the exact
+    // build-in-at-2x case the reproduction showed failing.
+    #[test]
+    fn island_on_builtin_cursor_on_builtin_is_interactive() {
+        // Island placed on the built-in (origin 435,0). Cursor over the pill center (window-relative
+        // 300,49) => global logical (735, 49). Must be inside the pill (window becomes interactive).
+        let rel = window_relative_from_origin((735.0, 49.0), ORIGIN_BUILTIN);
+        assert!(point_in_rect(rel, PILL));
+    }
+
+    #[test]
+    fn island_on_builtin_cursor_on_external_is_click_through() {
+        // Island on the built-in; cursor far away on the external display (a point near its center).
+        // window-relative is deeply negative => not in the pill (window stays click-through).
+        let rel = window_relative_from_origin((-960.0, 400.0), ORIGIN_BUILTIN);
+        assert!(!point_in_rect(rel, PILL));
+    }
+
+    #[test]
+    fn island_on_external_cursor_on_external_is_interactive() {
+        // Island placed on the external (origin -1260,-84). Cursor over the pill center => global
+        // logical (-1260 + 300, -84 + 49) = (-960, -35). Must be inside the pill.
+        let rel = window_relative_from_origin((-960.0, -35.0), ORIGIN_EXTERNAL);
+        assert!(point_in_rect(rel, PILL));
+    }
+
+    #[test]
+    fn island_on_external_cursor_on_builtin_is_click_through() {
+        // Island on the external; cursor over on the built-in (global 735,49). window-relative is far
+        // to the right of the pill => not contained (window stays click-through).
+        let rel = window_relative_from_origin((735.0, 49.0), ORIGIN_EXTERNAL);
+        assert!(!point_in_rect(rel, PILL));
+    }
 
     #[test]
     fn point_inside_pill_hitbox() {
@@ -503,62 +492,6 @@ mod tests {
         let back = reveal_step(armed, true, start + Duration::from_millis(100), REVEAL_GRACE);
         assert!(back.revealed);
         assert_eq!(back.deadline, None);
-    }
-
-    // --- Display-follow edge detection (T18): reposition only on a real monitor change ---
-    const MON_A: MonitorKey = (0, 0, 1512, 982);
-    const MON_B: MonitorKey = (1512, 0, 2560, 1440);
-
-    #[test]
-    fn first_observation_seeds_without_repositioning() {
-        // The show already placed the island; the seeding tick must not re-place it.
-        let (next, changed) = monitor_change_step(None, Some(MON_A));
-        assert_eq!(next, Some(MON_A));
-        assert!(!changed);
-    }
-
-    #[test]
-    fn same_monitor_short_circuits() {
-        // The common every-tick case: cursor sitting on one display -> no reposition, ever.
-        let (next, changed) = monitor_change_step(Some(MON_A), Some(MON_A));
-        assert_eq!(next, Some(MON_A));
-        assert!(!changed);
-    }
-
-    #[test]
-    fn genuine_change_repositions_once_then_settles() {
-        // A -> B repositions exactly once; staying on B does not repeat.
-        let (after_move, moved) = monitor_change_step(Some(MON_A), Some(MON_B));
-        assert_eq!(after_move, Some(MON_B));
-        assert!(moved);
-        let (settled, again) = monitor_change_step(after_move, Some(MON_B));
-        assert_eq!(settled, Some(MON_B));
-        assert!(!again);
-    }
-
-    #[test]
-    fn transient_dropout_at_a_boundary_never_repositions() {
-        // Cursor momentarily resolves to no monitor (a gap / failed read) between two reads of the
-        // SAME display: the None is inert (keeps the tracked key), and re-acquiring the same monitor
-        // does not reposition. This is the hysteresis against a reposition storm at a boundary.
-        let start = Some(MON_A);
-        let (after_none, changed_none) = monitor_change_step(start, None);
-        assert_eq!(after_none, Some(MON_A));
-        assert!(!changed_none);
-        let (after_reacquire, changed_reacquire) = monitor_change_step(after_none, Some(MON_A));
-        assert_eq!(after_reacquire, Some(MON_A));
-        assert!(!changed_reacquire);
-    }
-
-    #[test]
-    fn dropout_does_not_lose_a_pending_real_change() {
-        // A, then a dropout, then B: the dropout keeps A tracked, so the A -> B change is still
-        // detected when B is acquired (the transient None neither repositions nor swallows the edge).
-        let (held, changed_none) = monitor_change_step(Some(MON_A), None);
-        assert!(!changed_none);
-        let (moved_to_b, changed) = monitor_change_step(held, Some(MON_B));
-        assert_eq!(moved_to_b, Some(MON_B));
-        assert!(changed);
     }
 
     #[test]

@@ -358,7 +358,7 @@ pub fn show_island(app: &AppHandle) {
     let handle = app.clone();
     let inner = app.clone();
     let _ = handle.run_on_main_thread(move || {
-        reposition_island_on_main(&inner);
+        reposition_island_to_cursor(&inner);
 
         #[cfg(target_os = "macos")]
         {
@@ -407,10 +407,11 @@ pub fn reflow_island(app: &AppHandle) {
     let handle = app.clone();
     let inner = app.clone();
     let _ = handle.run_on_main_thread(move || {
-        // `reposition_island_on_main` already re-resolves the per-display mode and emits
-        // `island:geometry` (T17), so a monitor/display change reflows the under-notch pill + ambient
-        // wings indicator (or the float layout on a non-notch display) with no separate emit here.
-        reposition_island_on_main(&inner);
+        // `reposition_island_on_main` re-resolves the per-display mode and emits `island:geometry`
+        // (T17), reflowing the under-notch pill + ambient wings (or the float layout on a non-notch
+        // display) with no separate emit here. Targets the island's CURRENT monitor (T20 stay-put),
+        // so a settings change never chases the cursor to another screen.
+        reposition_island_to_current(&inner);
     });
 }
 
@@ -603,27 +604,20 @@ fn load_island_settings(app: &AppHandle) -> crate::notification::settings::Islan
         .unwrap_or_default()
 }
 
-/// Reposition the island to the CURSOR's monitor (the active screen), then publish that display's
-/// class to the webview (T17). MUST run on the main thread (notch + NSScreen reads). No-op if no
-/// monitor resolves.
+/// Place the island on the given `monitor` and publish that display's class to the webview (T17).
+/// MUST run on the main thread (notch + NSScreen reads). The per-display mode is resolved here -
+/// `Float` settings force the float capsule everywhere; `Notch` settings are auto: the under-notch
+/// layout on a notched display, the float capsule top-center on a non-notch display.
 ///
-/// This is the fix for the reported regression: the island now follows the cursor monitor exactly
-/// like the top-right card, instead of pinning to the built-in notched panel. The per-display mode is
-/// resolved here - `Float` settings force the float capsule everywhere; `Notch` settings are auto:
-/// the under-notch layout on a notched display, the float capsule top-center on a non-notch display.
-fn reposition_island_on_main(app: &AppHandle) {
-    let monitor = match super::panel::get_cursor_monitor_info(app)
-        .or_else(|| super::panel::get_primary_monitor_info(app))
-    {
-        Some(m) => m,
-        None => return,
-    };
-
+/// The CALLER decides which monitor this targets (T20 stay-put): a new notification arrival targets
+/// the CURSOR's monitor (`reposition_island_to_cursor`) so it shows on the active screen; a settings
+/// reflow targets the island's CURRENT monitor (`reposition_island_to_current`) so it stays put.
+fn reposition_island_on_main(app: &AppHandle, monitor: MonitorInfo) {
     // Read the persisted preference; a float position anchors the frame to the matching edge. A
     // missing/corrupt file yields defaults (notch/center == top-center). D3: an instant
     // `set_position`, never an animated frame move.
     let settings = load_island_settings(app);
-    let mode = effective_island_mode(settings.mode, cursor_display_has_notch(monitor));
+    let mode = effective_island_mode(settings.mode, display_has_notch(monitor));
 
     let anchor_position = island_anchor_position(settings.mode, settings.position);
     let pos = island_anchor_for(monitor, IslandEnvelope::FIXED, mode, anchor_position);
@@ -631,14 +625,59 @@ fn reposition_island_on_main(app: &AppHandle) {
         let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition::new(
             pos.x, pos.y,
         )));
+        // Store the LOGICAL origin we just SET so the hover tick (T20) computes window-relative
+        // cursor coords by plain subtraction, never via `outer_position()`/`scale_factor()`, which
+        // can be stale or from the wrong display mid cross-display move on a 2x screen.
+        crate::overlay::hover::set_island_origin(pos.x, pos.y);
     }
 
     apply_island_geometry_on_main(app, monitor, mode);
 }
 
-/// True when the cursor's current display physically has a notch. macOS: correlates the cursor's
-/// monitor to the built-in notched panel by logical width. Non-macOS: always false (no notch API).
-fn cursor_display_has_notch(monitor: MonitorInfo) -> bool {
+/// Reposition targeting the CURSOR's monitor: a genuinely NEW notification shows on the active
+/// (cursor) screen (T17/T20). Called from every `show_island` (every island arrival). No-op if no
+/// monitor resolves.
+fn reposition_island_to_cursor(app: &AppHandle) {
+    if let Some(monitor) = super::panel::get_cursor_monitor_info(app)
+        .or_else(|| super::panel::get_primary_monitor_info(app))
+    {
+        reposition_island_on_main(app, monitor);
+    }
+}
+
+/// Reposition keeping the island on the monitor it is CURRENTLY on (T20 stay-put). A settings change
+/// re-anchors the island within its OWN screen (notch<->float, a float-edge change) but must NOT
+/// chase the cursor to the settings window's screen. Falls back to the cursor / primary monitor only
+/// if the window's current monitor cannot be resolved.
+fn reposition_island_to_current(app: &AppHandle) {
+    if let Some(monitor) = island_current_monitor(app)
+        .or_else(|| super::panel::get_cursor_monitor_info(app))
+        .or_else(|| super::panel::get_primary_monitor_info(app))
+    {
+        reposition_island_on_main(app, monitor);
+    }
+}
+
+/// The `MonitorInfo` of the display the island window is currently on (T20), or `None` before the
+/// window exists / if Tauri cannot resolve its monitor.
+fn island_current_monitor(app: &AppHandle) -> Option<MonitorInfo> {
+    let window = app.get_webview_window(ISLAND_LABEL)?;
+    let monitor = window.current_monitor().ok().flatten()?;
+    let pos = monitor.position();
+    let size = monitor.size();
+    Some(MonitorInfo {
+        x: pos.x as f64,
+        y: pos.y as f64,
+        width: size.width as f64,
+        height: size.height as f64,
+        scale_factor: monitor.scale_factor(),
+    })
+}
+
+/// True when the given display physically has a notch. macOS: correlates the monitor to the built-in
+/// notched panel by logical width. Non-macOS: always false (no notch API). The caller passes either
+/// the cursor's monitor (a new arrival) or the island's current monitor (a settings reflow), T20.
+fn display_has_notch(monitor: MonitorInfo) -> bool {
     #[cfg(target_os = "macos")]
     {
         cursor_display_notch(monitor).is_some()
