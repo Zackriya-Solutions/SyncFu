@@ -330,3 +330,10 @@ Worktrees preserved: t5b, t6, t10, t11 (earlier 13 removed on user instruction).
   no-concurrent-builds rule is already in RELEASE-CHECKLIST.md.
 - DEMO: new app running on :9868 (user-consented swap from production app); sample island decision
   notification delivered. Old app relaunch: open /Applications/syncfu.app
+- HARDWARE ITERATION 2 (user on real notch): design ratified as UNDER-NOTCH second-notch pill
+  (supersedes T12 wings) + HOVER-REVEAL (pill hidden when collapsed; hovering the physical notch
+  region slides it out; grace conceal; arrival announce unchanged; float mode keeps visible pill).
+  Hover root cause found by code-reading: hover.rs tick() mixes CGEvent POINTS with outer_position
+  PHYSICAL pixels - containment never true on 2x Retina; unit tests encoded the author's own wrong
+  convention. T13 worker dispatched: redesign + verified-convention fix + live probe evidence.
+  Pre-existing latent: get_cursor_monitor_info same unit mix (flagged, out of scope).
