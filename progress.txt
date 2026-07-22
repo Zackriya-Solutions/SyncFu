@@ -347,3 +347,8 @@ Worktrees preserved: t5b, t6, t10, t11 (earlier 13 removed on user instruction).
   the next Rust touch (avoid restarting the app mid-user-test): LOW pin AMBIENT_WING const in Rust
   tests (drift guard), 2 NITs (dead param, redundant helper). Scope observation: IslandGroup (N>1)
   has no ambient/hover-reveal - conscious boundary, surfaced to user for a design call.
+- T15 REVIEW: CLEAN (critical-dismiss chain traced end-to-end; clear-all dedupe reasoning verified
+  against manager.rs; single-instance registration verified first-in-chain). 2 LOWs: css
+  pointer-events hardening APPLIED (HMR); single-instance callback should open_main_window
+  (creates-if-absent) - QUEUED for next Rust touch. Observation: clear-all's clears-cards-too side
+  effect is dev-documented only.
