@@ -232,3 +232,29 @@ instance. With the single-instance guard, reaching this path now implies an EXTE
 
 - [ ] MANUAL (optional): hold :9868 with `nc -l 9868` (or another process), then launch syncfu.
   Confirm the FATAL bind-failure line appears in the log and on stderr, and the overlay UI still runs.
+
+### Docs refresh (T16) - DONE
+
+The user-facing docs were refreshed to match the merged island through T15 (four
+hardware iterations past the T10 docs pass). Every claim was verified against
+source. Touched / added:
+
+- `README.md` - island section: new "Interaction model" (four states + ASCII
+  diagram), "Dismissal" (card x / per-row x / "Clear all" side effect), "Single
+  instance" note, notch-adaptation wording. Settings table + capture matrix left
+  intact (re-verified accurate against `settings.rs` and `island.rs`).
+- `CHEATSHEET.md` - island examples refreshed; ambient-progress and dismiss/clear
+  flows added.
+- `claude/skill.md`, `claude/command.md` - agent-facing island guidance
+  (when to use island vs card, ambient progress, `--wait` 0/1/2 with the
+  island-specific unanswered -> 2, the four-state attention model).
+- `docs/island.md` - NEW consolidated reference (interaction model, 13 settings,
+  payload field, capture matrix, dismissal, single-instance, troubleshooting).
+- `examples/` - NEW runnable scripts: `agent-approval-gate.sh`,
+  `long-task-progress.sh`, `multi-notification-model-b.sh`, `island-settings.sh`.
+
+- [ ] Docs-only change; no code touched. Verify `pnpm test` and
+  `cargo check -p syncfu` are still green (they were at commit time).
+- [ ] The `examples/*.sh` scripts require a `syncfu` CLI built from this branch
+  (`--presentation` postdates the last published CLI). Rebuild/republish the CLI
+  before pointing users at the examples.
