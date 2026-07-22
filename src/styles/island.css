@@ -837,19 +837,48 @@
 }
 
 .di-lrow {
-  position: relative;
   display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px;
+  flex-direction: column;
   border-radius: 12px;
   animation: di-row-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 .di-lrow + .di-lrow {
   margin-top: 2px;
 }
-.di-lrow:hover {
+/* The horizontal header row (dot/ava/txt + primary action + close). Split from
+   `.di-lrow` (now a column) so the inline expansion can grow BELOW it (T18); the
+   per-row close stays positioned against this header, not the grown row. */
+.di-lrow-main {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border-radius: 12px;
+}
+.di-lrow-main:hover {
   background: rgba(255, 255, 255, 0.04);
+}
+/* Row body: the click target that toggles the inline expansion (T18). A button
+   for expandable rows (aria-expanded), a plain span otherwise - reset to inherit
+   so it reads as row content, never as chrome. Holds dot/ava/txt in the same flow
+   the header used before the split, so unexpanded rows are visually unchanged. */
+.di-lrow-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+span.di-lrow-body {
+  cursor: default;
 }
 @media (prefers-reduced-motion: reduce) {
   .di-lrow {
@@ -927,7 +956,7 @@
    island-group-list baseline) unchanged; on row hover the primary action button
    slides left (transform, no reflow) to reveal it. Resolves exactly this row's
    waiter (A4). Reduced-motion drops both the fade and the slide. */
-.di-lrow:hover .di-lrow-act {
+.di-lrow-main:hover .di-lrow-act {
   transform: translateX(-24px);
 }
 .di-lrow-close {
@@ -950,7 +979,7 @@
   opacity: 0;
   transition: opacity 150ms ease, background 150ms ease;
 }
-.di-lrow:hover .di-lrow-close,
+.di-lrow-main:hover .di-lrow-close,
 .di-lrow-close:focus-visible {
   opacity: 1;
   pointer-events: auto;
@@ -967,4 +996,48 @@
   .di-lrow-close {
     transition: none;
   }
+}
+
+/* ---- Inline row expansion (T18) ------------------------------------------ */
+/* An expanded row keeps a faint tint on its whole column so the header + the
+   revealed actions read as one unit while open. */
+.di-lrow[data-expanded="true"] {
+  background: rgba(255, 255, 255, 0.04);
+}
+.di-light-content .di-lrow[data-expanded="true"] {
+  background: rgba(0, 0, 0, 0.04);
+}
+/* The revealed panel grows BELOW the header. The 560px list cap still holds: the
+   `.di-list-body` scroll container absorbs this growth (D5), never the frame. */
+.di-lrow-expand {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 2px 8px 10px 34px; /* left indent aligns actions under the row text */
+  animation: di-row-in 0.25s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .di-lrow-expand {
+    animation: none;
+  }
+}
+.di-lrow-msg {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.7);
+}
+.di-light-content .di-lrow-msg {
+  color: rgba(0, 0, 0, 0.62);
+}
+/* All actions in a wrap row, styled by the SHARED `.action-button` anatomy
+   (overlay.css) for parity with the card - only the flex sizing is overridden so
+   buttons hug their labels and wrap instead of stretching edge-to-edge. */
+.di-lrow-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.di-lrow-actions .action-button {
+  flex: 0 1 auto;
 }
