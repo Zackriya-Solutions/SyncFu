@@ -28,37 +28,21 @@ import {
 
 export type IslandState = "compact" | "expanded";
 
-/** Physical notch cutout geometry (BUG A), mirror of the Rust `NotchGeometryDto`. Logical points ==
+/** Physical notch cutout geometry (T13), mirror of the Rust `NotchGeometryDto`. Logical points ==
  *  CSS px on macOS. `null` on non-notch / non-macOS displays (the frontend keeps the float layout). */
 export interface NotchGeometry {
   readonly widthLogical: number;
   readonly heightLogical: number;
 }
 
-/** Minimum visible wing (px) on EACH side of the cutout, so the leading glyph and the trailing
- *  live-activity slot fit fully beside the physical notch instead of behind it (BUG A). Measured:
- *  the trailing live-activity (16px ring + 6px gap + ~28px percent ~= 50px) plus the ~6px shoulder
- *  inset needs ~56px; 60 gives a few px of slack (see island.css notch wing layout). */
-export const MIN_WING = 60;
-
-/** Extra height (px) below the cutout so the pill overhangs it slightly (boring.notch overhang). */
-export const NOTCH_UNDERHANG = 4;
-
-/** Effective compact pill width in notch mode: at least wide enough to seat a MIN_WING wing on each
- *  side of the cutout, never narrower than the user's setting. */
-export function effectiveCompactWidth(userWidth: number, geo: NotchGeometry): number {
-  return Math.max(userWidth, geo.widthLogical + 2 * MIN_WING);
-}
-
-/** Effective compact pill height in notch mode: at least the cutout height plus the underhang. */
-export function effectiveCompactHeight(userHeight: number, geo: NotchGeometry): number {
-  return Math.max(userHeight, geo.heightLogical + NOTCH_UNDERHANG);
-}
-
-/** Adopt the physical notch geometry into the compact geometry the morph controller targets. Only
- *  notch mode WITH a known geometry is adjusted; float mode and the no-geometry case (jsdom/tests,
- *  pre-event) return the settings unchanged, so every existing baseline is byte-identical (BUG A).
- *  Threaded through the SAME configure/applySettings path settings take - never a parallel one. */
+/** Adopt the physical notch geometry into the COMPACT geometry the morph controller targets, so the
+ *  collapsed pill renders as a SECOND NOTCH directly below the physical cutout (T13): the compact
+ *  pill width is EXACTLY the cutout width (so its black shape reads as an extension of the notch) and
+ *  its height is at least the cutout height (so it looks like the same band). Float mode and the
+ *  no-geometry case (jsdom/tests, pre-event) return the settings unchanged, so every existing float
+ *  baseline is byte-identical. Threaded through the SAME configure/applySettings path settings take -
+ *  never a parallel one. The whole island is offset DOWN by the cutout height in CSS (island.css),
+ *  so both compact and expanded content sit fully below the physical cutout. */
 export function effectiveIslandSettings(
   settings: IslandSettings,
   mode: IslandMode,
@@ -67,9 +51,23 @@ export function effectiveIslandSettings(
   if (mode !== "notch" || !geo) return settings;
   return {
     ...settings,
-    compactWidth: effectiveCompactWidth(settings.compactWidth, geo),
-    height: effectiveCompactHeight(settings.height, geo),
+    compactWidth: geo.widthLogical,
+    height: Math.max(settings.height, geo.heightLogical),
   };
+}
+
+/** Whether the under-notch pill should be VISIBLE (revealed) right now (T13 hover-reveal). In notch
+ *  mode the COLLAPSED pill is concealed until the physical notch is hovered (`notchHover`, the backend
+ *  `island:reveal` signal); an EXPANDED island - a fresh arrival announcing, a decision, or a manual
+ *  expand - is always visible and never auto-conceals on cursor exit; float / non-notch (`underNotch`
+ *  false) always shows the pill (no reveal semantics off the built-in notched panel). */
+export function shouldReveal(
+  underNotch: boolean,
+  expanded: boolean,
+  notchHover: boolean
+): boolean {
+  if (!underNotch) return true;
+  return expanded || notchHover;
 }
 
 /** Surface inputs the appearance/position layer (T8) feeds the controller:

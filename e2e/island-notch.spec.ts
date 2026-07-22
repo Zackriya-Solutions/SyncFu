@@ -1,10 +1,11 @@
 import { test, expect } from "@playwright/test";
 
-// BUG A acceptance: on a real notched display the compact/expanded island content
-// must live in the visible WINGS beside the physical cutout and BELOW it, never
-// behind it. The harness overlays a black rectangle at the exact cutout position
-// (G1's 183x32); this spec reuses the wall-audit leaf-measurement technique to
-// assert NO content leaf inside .di-content intersects that cutout rectangle.
+// T13 under-notch acceptance: on a real notched display the island renders as a
+// SECOND NOTCH directly below the physical cutout, so ALL of its content (compact
+// pill AND expanded card) sits fully BELOW the cutout, never behind it. The harness
+// overlays a black rectangle at the exact cutout position (G1's 183x32) ABOVE the
+// pill; this spec reuses the wall-audit leaf-measurement technique to assert NO
+// content leaf inside .di-content intersects that cutout rectangle.
 // Defaults to the shared 1420 harness server; overridable so this worktree can be
 // served on its own port while another dev session holds 1420 (no port fight).
 const PORT = process.env.HARNESS_PORT ?? "1420";
@@ -54,7 +55,7 @@ test.beforeEach(async ({ page }) => {
   await page.locator("#cell-expanded .di-expanded").waitFor();
 });
 
-test("compact content clears the cutout (glyph + trailing live in the wings)", async ({
+test("compact content clears the cutout (whole pill sits below it)", async ({
   page,
 }) => {
   const cutout = await cutoutRect(page, "cell-compact");
@@ -86,10 +87,15 @@ test("expanded content starts below the cutout (top row cleared)", async ({ page
   }
 });
 
-test("the compact sender label is omitted in notch mode (no text behind the cutout)", async ({
+test("the compact pill keeps its full content below the cutout (label restored)", async ({
   page,
 }) => {
-  // The wing pill drops the sender label; the glyph + trailing ring remain.
-  await expect(page.locator("#cell-compact .di-sender")).toHaveCount(0);
+  // The under-notch pill lays out normally: the sender label is back (no wing
+  // omission), and it renders below the cutout (asserted by the clears-cutout test).
+  await expect(page.locator("#cell-compact .di-sender")).toHaveCount(1);
   await expect(page.locator("#cell-compact .di-dot")).toBeVisible();
+  // The whole island is offset down: the reveal wrapper carries the notch marker.
+  await expect(
+    page.locator('#cell-compact [data-testid="island-reveal"]')
+  ).toHaveAttribute("data-notch", "true");
 });

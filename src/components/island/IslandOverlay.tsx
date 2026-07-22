@@ -31,9 +31,13 @@ import { IslandGroup } from "./IslandGroup";
 export function IslandOverlay() {
   const setSettings = useIslandSettingsStore((s) => s.setSettings);
   const [snapshot, setSnapshot] = useState<IslandSnapshot>(EMPTY_ISLAND_SNAPSHOT);
-  // Physical notch cutout geometry (BUG A): creation read + live `island:geometry` event. Null on
+  // Physical notch cutout geometry (T13): creation read + live `island:geometry` event. Null on
   // non-notch / non-macOS displays -> Island keeps the float layout.
   const [notchGeometry, setNotchGeometry] = useState<NotchGeometry | null>(null);
+  // Backend hover-reveal signal (T13, `island:reveal`): true while the physical notch (or the pill)
+  // is hovered. Governs the collapsed under-notch pill's visibility; the backend owns the state
+  // machine (notch-region + grace), so the frontend only mirrors the boolean it emits.
+  const [notchHover, setNotchHover] = useState(false);
 
   // Push the settled shape bounds to the backend as the click-through hitbox (BUG B). Reported on
   // morph settle (via Island's onSettle) so the cursor tracker can make the shown capsule
@@ -148,6 +152,28 @@ export function IslandOverlay() {
     };
   }, []);
 
+  // Hover-reveal signal (T13): the backend emits `island:reveal` (bool) when the notch-region hover
+  // state flips. No creation read - a freshly shown island starts concealed and the first hover
+  // reveals it (an arrival announces EXPANDED, which is always visible regardless of this flag).
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let active = true;
+    (async () => {
+      try {
+        unlisten = await tauriEvent.listen<boolean>("island:reveal", (ev) => {
+          setNotchHover(!!ev.payload);
+        });
+      } catch {
+        // No backend (browser harness): keep concealed default; float mode ignores it anyway.
+      }
+      if (!active) unlisten?.();
+    })();
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, []);
+
   const { mode, position } = useIslandSettingsStore((s) => s.settings);
   const layoutPosition = mode === "float" ? position : "center";
 
@@ -173,6 +199,7 @@ export function IslandOverlay() {
           onAction={handleAction}
           onDismiss={handleDismiss}
           notchGeometry={notchGeometry}
+          notchHover={notchHover}
           onSettle={reportHitbox}
         />
       )}
@@ -181,6 +208,8 @@ export function IslandOverlay() {
           snapshot={snapshot}
           onRowAction={handleRowAction}
           onDismiss={handleDismiss}
+          notchGeometry={notchGeometry}
+          onSettle={reportHitbox}
         />
       )}
     </div>
