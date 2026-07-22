@@ -1,6 +1,6 @@
 //! macOS notch geometry, read from public `NSScreen` APIs (notarization-safe).
 //!
-//! Verified on real hardware by gate G1 (see `tasks/dynamic-island/gates/G1-verdict.md`):
+//! Verified on real hardware by gate G1 (gate G1):
 //! on a built-in notched panel `safeAreaInsets().top > 0` signals a notch, and the physical
 //! cutout width follows boring.notch's formula
 //! `frame.width - auxiliaryTopLeftArea.width - auxiliaryTopRightArea.width + 4`.

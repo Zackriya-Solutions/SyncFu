@@ -1,6 +1,6 @@
-// Dynamic Island morph controller - ported from the approved mockup's
-// createIsland controller (tasks/dynamic-island-mockup.html ~L810-950:
-// setTargets / measure / frame / kick). Drives the compact<->expanded morph by
+// Dynamic Island morph controller - ported from the approved design mockup's
+// createIsland controller (setTargets / measure / frame / kick).
+// Drives the compact<->expanded morph by
 // writing the SVG path + box geometry every rAF frame, INSIDE the fixed OS frame
 // (D3: the window is never resized here - the shape and content morph, not the
 // panel). Framework-agnostic: takes DOM elements + reuses T2's Spring /

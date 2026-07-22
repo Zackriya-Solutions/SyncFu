@@ -34,3 +34,6 @@ target/
 
 # Local Netlify folder
 .netlify
+
+# Internal planning/design artifacts (kept local, never shipped)
+tasks/

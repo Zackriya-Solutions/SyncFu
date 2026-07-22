@@ -1,6 +1,6 @@
-// Dynamic Island shape generator - ported verbatim from the approved mockup
-// (tasks/dynamic-island-mockup.html, notchPath ~L753, capsulePath ~L770,
-// --di-wall publication ~L887). Pure geometry: ZERO Tauri / React / DOM deps.
+// Dynamic Island shape generator - ported verbatim from the approved design
+// mockup (notchPath, capsulePath, --di-wall publication).
+// Pure geometry: ZERO Tauri / React / DOM deps.
 //
 // Concave top shoulders (quadratic-Bezier control point AT the outer top corner,
 // on the top edge) + convex bottom rounds. Guard G3 (SVG path, not CSS mask),

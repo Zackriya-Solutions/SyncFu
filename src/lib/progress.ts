@@ -1,7 +1,7 @@
 // Progress geometry helpers for the island (T5b). Pure + unit-testable, shared by
 // the compact live-activity mini-ring (IslandCompact) and the expanded bar/ring
-// (IslandExpanded). Ported from the mockup's ringSVG (tasks/dynamic-island-mockup
-// .html ~L1003): a 24x24 viewBox circle whose stroke-dasharray == circumference
+// (IslandExpanded). Ported from the approved design mockup's ringSVG (rev 8):
+// a 24x24 viewBox circle whose stroke-dasharray == circumference
 // and stroke-dashoffset == circumference * (1 - value) draws the fill arc.
 //
 // The card renders progress as a bar for BOTH styles; the island adds a real ring

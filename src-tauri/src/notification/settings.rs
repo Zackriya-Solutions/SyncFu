@@ -98,7 +98,7 @@ pub struct IslandSettings {
 }
 
 impl Default for IslandSettings {
-    /// Mockup DEFAULTS (the `DEFAULTS` object in `tasks/dynamic-island-mockup.html`).
+    /// Mockup DEFAULTS (the `DEFAULTS` object in the approved design mockup).
     fn default() -> Self {
         Self {
             compact_width: 218,

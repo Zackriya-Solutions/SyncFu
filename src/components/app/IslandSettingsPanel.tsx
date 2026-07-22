@@ -11,7 +11,7 @@ import {
 } from "@/types/islandSettings";
 
 // Island settings surface (T7b). Ports the approved mockup playground's controls
-// (tasks/dynamic-island-mockup.html section 02) into the main window - a tray
+// (approved design mockup, section 02) into the main window - a tray
 // menu cannot host 13 controls (documented layout-slot decision). Every control
 // writes optimistically to the store AND persists via set_island_settings; the
 // backend re-emits island:settings so the LIVE island restyles with no restart
