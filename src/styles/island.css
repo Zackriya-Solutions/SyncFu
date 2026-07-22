@@ -322,6 +322,8 @@
    the primary dismissal path for CRITICAL no-action notifications, which otherwise
    never leave the island. Reduced-motion drops the fade (still shows on hover). */
 .di-close {
+  /* No clickable footprint while invisible (T15 review): hover restores it. */
+  pointer-events: none;
   position: absolute;
   top: 4px;
   right: 2px;
@@ -342,6 +344,7 @@
 .di-island:hover .di-close,
 .di-close:focus-visible {
   opacity: 1;
+  pointer-events: auto;
 }
 .di-close:hover {
   background: rgba(255, 255, 255, 0.16);
@@ -926,6 +929,8 @@
   transform: translateX(-24px);
 }
 .di-lrow-close {
+  /* No clickable footprint while invisible (T15 review): hover restores it. */
+  pointer-events: none;
   position: absolute;
   top: 50%;
   right: 8px;
@@ -946,6 +951,7 @@
 .di-lrow:hover .di-lrow-close,
 .di-lrow-close:focus-visible {
   opacity: 1;
+  pointer-events: auto;
 }
 .di-lrow-close:hover {
   background: rgba(255, 255, 255, 0.2);
