@@ -113,50 +113,38 @@
   padding-right: max(16px, calc(var(--di-wall) + 5px));
 }
 
-/* ---- Notch wing layout (BUG A) ------------------------------------------- *
- * On a real notched display the compact pill visually EXTENDS the physical
- * cutout: its content must live in the visible WINGS beside the cutout, never
- * behind it. Island.tsx sets `data-notch="true"` and publishes `--di-notch-w`
- * (cutout width) and `--di-notch-h` (cutout height) when notch geometry is known.
- *
- * Compact becomes a three-zone grid: [left wing | dead notch strip | right wing].
- * The center strip is exactly the cutout width and holds NOTHING; the glyph hugs
- * the outer-left wing, the trailing live-activity the outer-right wing. The outer
- * padding drops to the shoulder inset only (radius ~6) so the wings stay wide
- * enough to seat their content clear of the cutout.
- *
- * WING SIZING (measured): the trailing live-activity is a 16px mini-ring + 6px gap
- * + ~28px percent label ~= 50px. With a ~6px shoulder inset that needs a ~56px
- * wing; MIN_WING is 60 in islandMorph.ts for a few px of slack, so effective
- * compact width = cutoutWidth + 120. The sender LABEL is omitted in notch mode
- * (IslandCompact): the ~4px underhang below the 32pt cutout cannot seat 11.5px
- * text, so a label would either sit behind the cutout or force the pill absurdly
- * tall. Glanceable identity stays the accent glyph + live-activity. */
-.di-island[data-notch="true"][data-state="compact"] .di-content {
-  padding-left: max(6px, calc(var(--di-wall) + 2px));
-  padding-right: max(6px, calc(var(--di-wall) + 2px));
+/* ---- Under-notch second-notch pill + hover-reveal (T13) ------------------ *
+ * On a real notched display the island renders as a SECOND NOTCH directly below
+ * the physical cutout: same width as the cutout, flush top edge butted against the
+ * cutout bottom, so its black shape merges into the hardware notch and reads as one
+ * taller notch. The `.di-reveal` wrapper (Island/IslandGroup) carries this: it
+ * offsets the WHOLE island DOWN by the cutout height (`--di-notch-h`) so BOTH the
+ * compact pill and the expanded card lay out normally yet sit fully below the
+ * cutout - no wing layout, no content-padding hacks (the shape top itself is at
+ * y = notchHeight). The wrapper also slides the collapsed pill up out of sight
+ * (concealed) until the physical notch is hovered (`data-revealed`, driven by the
+ * backend `island:reveal` signal). Without `data-notch` (float / non-notch) the
+ * wrapper is a layout-neutral passthrough and the pill is always visible. */
+.di-reveal[data-notch="true"] {
+  will-change: transform, opacity;
 }
-.di-island[data-notch="true"] .di-compact {
-  display: grid;
-  grid-template-columns: 1fr var(--di-notch-w, 0px) 1fr;
-  gap: 0;
-  align-items: center;
+.di-reveal[data-notch="true"][data-revealed="true"] {
+  /* Revealed resting position: the second notch, offset down by the cutout height. */
+  transform: translateY(var(--di-notch-h, 0px));
+  opacity: 1;
 }
-.di-island[data-notch="true"] .di-dot {
-  grid-column: 1;
-  justify-self: start;
+.di-reveal[data-notch="true"][data-revealed="false"] {
+  /* Concealed: tuck the pill up behind the opaque cutout (its own height) and fade. */
+  transform: translateY(-100%);
+  opacity: 0;
+  pointer-events: none;
 }
-.di-island[data-notch="true"] .di-trailing {
-  grid-column: 3;
-  justify-self: end;
-  margin-left: 0;
-}
-
-/* Expanded: the shape stays flush at y=0 (black blends with the hardware cutout)
- * but CONTENT must start BELOW the cutout. Drop the top wall padding to at least
- * the cutout height + 6px so the first row clears the notch. */
-.di-island[data-notch="true"] .di-expanded {
-  padding-top: max(11px, calc(var(--di-notch-h) + 6px));
+@media (prefers-reduced-motion: no-preference) {
+  .di-reveal[data-notch="true"] {
+    transition:
+      transform 240ms cubic-bezier(0.22, 1, 0.36, 1),
+      opacity 200ms ease;
+  }
 }
 
 /* ---- Compact pill -------------------------------------------------------- */

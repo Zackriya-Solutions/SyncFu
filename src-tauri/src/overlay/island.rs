@@ -560,6 +560,37 @@ fn reposition_island_on_main(app: &AppHandle) {
                 pos.x, pos.y,
             )));
         }
+        // Publish the physical-notch hover region for the reveal (T13). Enabled ONLY in notch mode
+        // with a real cutout; float / non-notch clears it so the reveal is inert (the pill stays
+        // visible there). The window is centered, so the region is centered on the fixed envelope.
+        update_notch_region_on_main(settings.mode);
+    }
+}
+
+/// Compute + store (or clear) the physical-notch hover region used by the reveal, based on the live
+/// cutout geometry and the persisted mode. MUST run on the main thread (`read_notch_geometry_on_main`
+/// needs a `MainThreadMarker`). On non-macOS there is no notch, so the region is always cleared.
+fn update_notch_region_on_main(mode: Mode) {
+    #[cfg(target_os = "macos")]
+    {
+        let region = if mode == Mode::Notch {
+            read_notch_geometry_on_main().map(|g| {
+                crate::overlay::hover::notch_region(
+                    IslandEnvelope::FIXED.width,
+                    g.width_logical,
+                    g.height_logical,
+                    crate::overlay::hover::NOTCH_MARGIN,
+                )
+            })
+        } else {
+            None
+        };
+        crate::overlay::hover::set_notch_region(region);
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = mode;
+        crate::overlay::hover::set_notch_region(None);
     }
 }
 

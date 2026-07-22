@@ -1,50 +1,32 @@
 import { describe, it, expect } from "vitest";
 import {
-  MIN_WING,
-  NOTCH_UNDERHANG,
-  effectiveCompactWidth,
-  effectiveCompactHeight,
   effectiveIslandSettings,
+  shouldReveal,
   type NotchGeometry,
 } from "./islandMorph";
 import { DEFAULT_ISLAND_SETTINGS } from "@/types/islandSettings";
 
-// BUG A geometry math: the compact pill must widen to seat a visible wing on each
-// side of the physical cutout so its content never renders behind the notch. The
-// G1 hardware measurement is a 183 x 32 cutout.
+// T13 under-notch geometry: the collapsed pill renders as a SECOND NOTCH directly
+// below the physical cutout, so its compact width equals the cutout width (reads as
+// an extension of the notch) and its height is at least the cutout height. The G1
+// hardware measurement is a 183 x 32 cutout.
 const G1: NotchGeometry = { widthLogical: 183, heightLogical: 32 };
 
-describe("effective compact geometry (notch wings)", () => {
-  it("width seats a MIN_WING wing on each side of the cutout (G1 183pt)", () => {
-    // 183 + 2*60 = 303, well past the 218 default, so wings actually exist.
-    expect(effectiveCompactWidth(218, G1)).toBe(183 + 2 * MIN_WING);
-    expect(effectiveCompactWidth(218, G1)).toBeGreaterThan(218);
-  });
-
-  it("never shrinks below the user's own compact width", () => {
-    // A user who set an extra-wide pill keeps it (the max wins).
-    expect(effectiveCompactWidth(400, G1)).toBe(400);
-  });
-
-  it("height overhangs the cutout by NOTCH_UNDERHANG", () => {
-    // 32 + 4 = 36 > the 34 default, so the pill hangs slightly below the cutout.
-    expect(effectiveCompactHeight(34, G1)).toBe(32 + NOTCH_UNDERHANG);
-    expect(effectiveCompactHeight(34, G1)).toBeGreaterThan(32);
-  });
-
-  it("keeps a taller user height", () => {
-    expect(effectiveCompactHeight(50, G1)).toBe(50);
-  });
-});
-
-describe("effectiveIslandSettings", () => {
-  it("adjusts compact width/height in notch mode WITH geometry", () => {
+describe("effectiveIslandSettings (under-notch sizing)", () => {
+  it("takes the cutout width and at least the cutout height in notch mode", () => {
     const eff = effectiveIslandSettings(DEFAULT_ISLAND_SETTINGS, "notch", G1);
-    expect(eff.compactWidth).toBe(183 + 2 * MIN_WING);
-    expect(eff.height).toBe(32 + NOTCH_UNDERHANG);
+    // Width is EXACTLY the cutout width so the pill reads as a second notch.
+    expect(eff.compactWidth).toBe(183);
+    // Height is max(userHeight, cutoutHeight); the 34 default already clears 32.
+    expect(eff.height).toBe(Math.max(DEFAULT_ISLAND_SETTINGS.height, 32));
     // Everything else is untouched (expanded width, radii, accent, ...).
     expect(eff.expandedWidth).toBe(DEFAULT_ISLAND_SETTINGS.expandedWidth);
     expect(eff.topRadius).toBe(DEFAULT_ISLAND_SETTINGS.topRadius);
+  });
+
+  it("keeps a taller user height (max wins)", () => {
+    const tall = { ...DEFAULT_ISLAND_SETTINGS, height: 48 };
+    expect(effectiveIslandSettings(tall, "notch", G1).height).toBe(48);
   });
 
   it("is a byte-identical passthrough in float mode (geometry ignored)", () => {
@@ -59,5 +41,24 @@ describe("effectiveIslandSettings", () => {
     expect(effectiveIslandSettings(DEFAULT_ISLAND_SETTINGS, "notch", null)).toBe(
       DEFAULT_ISLAND_SETTINGS
     );
+  });
+});
+
+describe("shouldReveal (hover-reveal decision)", () => {
+  it("float / non-notch is ALWAYS visible (no reveal semantics)", () => {
+    expect(shouldReveal(false, false, false)).toBe(true);
+    expect(shouldReveal(false, true, false)).toBe(true);
+  });
+
+  it("under-notch collapsed pill is concealed until the notch is hovered", () => {
+    expect(shouldReveal(true, false, false)).toBe(false); // collapsed, no hover -> hidden
+    expect(shouldReveal(true, false, true)).toBe(true); // collapsed, hovered -> revealed
+  });
+
+  it("an EXPANDED island is always visible and never auto-conceals on cursor exit", () => {
+    // Arrival announce / a decision / a manual expand: expanded ignores the hover
+    // signal entirely, so a cursor leaving the notch never hides it.
+    expect(shouldReveal(true, true, false)).toBe(true);
+    expect(shouldReveal(true, true, true)).toBe(true);
   });
 });

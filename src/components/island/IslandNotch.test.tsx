@@ -4,11 +4,12 @@ import { Island } from "./Island";
 import type { NotchGeometry } from "@/lib/islandMorph";
 import type { NotificationPayload } from "@/types/notification";
 
-// BUG A wing layout (jsdom). With a real cutout geometry in notch mode the compact
-// pill lays out wing-aware: the sender LABEL is omitted (it cannot fit in the ~4px
-// underhang below the 32pt cutout), the cutout width drives a `--di-notch-w` grid
-// var, and the expanded card exposes `--di-notch-h` so its content drops below the
-// cutout. Without geometry (the default jsdom path) nothing changes.
+// T13 under-notch layout (jsdom). With a real cutout geometry in notch mode the
+// island renders as a SECOND NOTCH below the cutout: the compact pill takes the
+// cutout WIDTH, the whole island is offset down by the cutout HEIGHT (published as
+// `--di-notch-h` on the `.di-reveal` wrapper), and the compact content lays out
+// NORMALLY - the sender label is back (no wing layout). Without geometry (the
+// default jsdom path) nothing changes.
 const G1: NotchGeometry = { widthLogical: 183, heightLogical: 32 };
 
 function makeNotification(
@@ -28,8 +29,8 @@ function makeNotification(
   };
 }
 
-describe("Island notch wing layout (BUG A)", () => {
-  it("omits the sender label and marks data-notch in notch mode with geometry", () => {
+describe("Island under-notch layout (T13)", () => {
+  it("keeps the sender label and marks the reveal wrapper in notch mode with geometry", () => {
     render(
       <Island
         notification={makeNotification()}
@@ -38,29 +39,43 @@ describe("Island notch wing layout (BUG A)", () => {
         notchGeometry={G1}
       />
     );
-    // Glyph + trailing survive; the sender label is gone (it would sit behind the cutout).
+    // Normal compact layout: glyph + sender label all present (no wing omission).
     expect(screen.getByTestId("island-compact-glyph")).toBeInTheDocument();
-    expect(screen.getByTestId("island-compact-trailing")).toBeInTheDocument();
-    expect(screen.queryByText("claude-code")).not.toBeInTheDocument();
+    expect(screen.getByText("claude-code")).toBeInTheDocument();
 
-    const island = screen.getByTestId("island");
-    expect(island).toHaveAttribute("data-notch", "true");
-    // The grid center strip is exactly the cutout width.
-    expect(island.style.getPropertyValue("--di-notch-w")).toBe("183px");
-    expect(island.style.getPropertyValue("--di-notch-h")).toBe("32px");
+    // The reveal wrapper carries the under-notch offset var + notch marker.
+    const wrapper = screen.getByTestId("island-reveal");
+    expect(wrapper).toHaveAttribute("data-notch", "true");
+    expect(wrapper.style.getPropertyValue("--di-notch-h")).toBe("32px");
+    // A controlled island is always revealed so fixtures render the pill.
+    expect(wrapper).toHaveAttribute("data-revealed", "true");
   });
 
-  it("keeps the sender label and NO notch vars without geometry (unchanged default)", () => {
+  it("takes the cutout width for the compact pill (second-notch sizing)", () => {
+    // The controller writes the effective width imperatively; the pill is exactly
+    // the 183pt cutout width, not the 218 default.
+    render(
+      <Island
+        notification={makeNotification()}
+        state="compact"
+        mode="notch"
+        notchGeometry={G1}
+      />
+    );
+    expect(screen.getByTestId("island").style.width).toBe("183px");
+  });
+
+  it("stays float layout (no notch marker / offset) without geometry", () => {
     render(
       <Island notification={makeNotification()} state="compact" mode="notch" />
     );
     expect(screen.getByText("claude-code")).toBeInTheDocument();
-    const island = screen.getByTestId("island");
-    expect(island).not.toHaveAttribute("data-notch");
-    expect(island.style.getPropertyValue("--di-notch-w")).toBe("");
+    const wrapper = screen.getByTestId("island-reveal");
+    expect(wrapper).not.toHaveAttribute("data-notch");
+    expect(wrapper.style.getPropertyValue("--di-notch-h")).toBe("");
   });
 
-  it("does NOT enter wing layout in float mode even with geometry", () => {
+  it("does NOT enter under-notch layout in float mode even with geometry", () => {
     render(
       <Island
         notification={makeNotification()}
@@ -69,9 +84,8 @@ describe("Island notch wing layout (BUG A)", () => {
         notchGeometry={G1}
       />
     );
-    // Float mode keeps the label; the cutout is irrelevant off the built-in panel.
     expect(screen.getByText("claude-code")).toBeInTheDocument();
-    expect(screen.getByTestId("island")).not.toHaveAttribute("data-notch");
+    expect(screen.getByTestId("island-reveal")).not.toHaveAttribute("data-notch");
   });
 
   it("reports the shape hitbox on settle (BUG B): onSettle fires with a rect", () => {
@@ -97,19 +111,5 @@ describe("Island notch wing layout (BUG A)", () => {
         h: expect.any(Number),
       })
     );
-  });
-
-  it("widens the compact pill so wings exist beside the cutout", () => {
-    // The controller writes the effective width imperatively; assert the box is the
-    // wing-seated 303px (183 + 2*60), not the raw 218 default.
-    render(
-      <Island
-        notification={makeNotification()}
-        state="compact"
-        mode="notch"
-        notchGeometry={G1}
-      />
-    );
-    expect(screen.getByTestId("island").style.width).toBe("303px");
   });
 });

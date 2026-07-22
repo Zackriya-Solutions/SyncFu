@@ -1,34 +1,59 @@
-//! Cursor-tracking click-through toggle for the island window (BUG B).
+//! Cursor-tracking for the under-notch island pill (T13): click-through interactivity toggle plus
+//! the hover-reveal that slides the collapsed second-notch pill down when the physical notch is
+//! hovered.
 //!
 //! The island frame is created click-through (`ignore_cursor_events(true)`) so the transparent
-//! envelope never eats clicks. That left the visible capsule permanently unclickable. This module
-//! polls the cursor at ~10Hz WHILE THE ISLAND IS VISIBLE and flips the window interactive only while
-//! the cursor is inside the frontend-reported hitbox (the true morphing-shape bounds), restoring
-//! click-through otherwise. Envelope area outside the shape stays click-through at all times.
+//! envelope never eats clicks. This module polls the cursor at ~10Hz WHILE notifications exist and
+//! flips the window interactive only while the cursor is inside the frontend-reported shape hitbox,
+//! restoring click-through otherwise. It ALSO drives the reveal: in notch mode the collapsed pill is
+//! concealed until the cursor enters the backend-computed physical-notch region, then it slides down;
+//! leaving both the notch region AND the pill for `GRACE` conceals it again (`island:reveal` event).
 //!
-//! Lifecycle (R-PERF): the poll is spawned by `show_island` and stopped by `hide_island`, so a
-//! hidden island costs zero idle CPU. The `true -> false` (interactive) toggle is driven from here
-//! because only the backend always knows the cursor position; the shape bounds come from the
-//! frontend via `set_island_hitbox` (reported on morph settle + show/hide, not per frame).
+//! Lifecycle (R-PERF): the poll is spawned by `show_island` and stopped by `hide_island`. The island
+//! window is shown for exactly as long as a notification exists (reveal is CSS-only and NEVER hides
+//! the window), so "poll while the window is shown" == "poll while snapshot count > 0". A hidden
+//! (count 0) island costs zero idle CPU.
 //!
-//! Coordinate convention mirrors `calculate_island_anchor`: the cursor and the window origin are
-//! read in PHYSICAL pixels (same space as `panel::get_cursor_position` / `outer_position`), and the
-//! difference is divided by the window scale factor to get window-relative LOGICAL px, which is the
-//! space the frontend's `getBoundingClientRect` hitbox lives in.
+//! COORDINATE CONVENTION (T13 fix, empirically verified on real hardware - see the probe numbers in
+//! the tests below). `panel::get_cursor_position` returns `CGEvent::location`, which is in Quartz
+//! GLOBAL DISPLAY POINTS (logical, top-left origin) - NOT physical pixels. `window.outer_position()`
+//! returns PHYSICAL pixels. The T12 code compared `(cursor - origin_physical) / scale`, mixing a
+//! logical cursor with a physical origin; on any Retina (2x) display the result was wrong and the
+//! window never became interactive ("still not touchable"). The fix converts the window origin to
+//! LOGICAL (`outer_position / scale`) and compares everything in logical points, end to end - the
+//! same space the frontend's `getBoundingClientRect` hitbox already lives in.
+//!
+//! NOTE (out of scope, latent, do NOT fix here): `panel::get_cursor_monitor_info` compares this same
+//! logical-points cursor against `monitor.position()`/`size()`, which are PHYSICAL pixels. On a
+//! Retina secondary monitor those spaces disagree, so cursor->monitor selection can pick the wrong
+//! display. Pre-existing; flagged for a separate fix.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 use super::island::{set_island_interactive, ISLAND_LABEL};
 use super::panel::get_cursor_position;
 
-/// Poll interval (~10Hz). Cheap while visible, and only runs while an island is shown.
+/// Poll interval (~10Hz). Cheap while notifications exist; never runs while the island is hidden.
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
 
-/// The visible-shape hitbox, in window-relative LOGICAL pixels (x, y from the window's top-left).
+/// Grace after the cursor leaves both the notch region and the pill before the reveal conceals, so a
+/// brief overshoot on the way to the pill does not flicker it away.
+const REVEAL_GRACE: Duration = Duration::from_millis(400);
+
+/// Slop (logical px) added around the physical cutout so the reveal triggers a touch before the
+/// cursor is exactly over the ~183x32 cutout (fat-finger / fast-cursor margin).
+pub const NOTCH_MARGIN: f64 = 8.0;
+
+/// Event the backend emits (scoped to the island window) when the reveal state flips. Payload is a
+/// bool: true == slide the collapsed pill down (revealed), false == slide it back up (concealed).
+const REVEAL_EVENT: &str = "island:reveal";
+
+/// An axis-aligned rectangle in window-relative LOGICAL pixels (x, y from the window's top-left).
+/// Used both for the frontend shape hitbox and the backend-computed physical-notch region.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Hitbox {
     pub x: f64,
@@ -37,34 +62,110 @@ pub struct Hitbox {
     pub h: f64,
 }
 
-/// The frontend-reported hitbox (the true morphing-shape bounds). `None` until first reported.
+/// The frontend-reported shape hitbox (the true morphing-shape bounds). `None` until first reported.
 static HITBOX: Mutex<Option<Hitbox>> = Mutex::new(None);
-/// Whether the poll loop is running (tied to island visibility). Guards against double-spawn.
+/// The backend-computed physical-notch region (window-relative logical). `Some` only in notch mode
+/// with a known cutout; `None` in float / non-notch mode (no reveal there - the pill stays visible).
+static NOTCH_REGION: Mutex<Option<Hitbox>> = Mutex::new(None);
+/// Whether the poll loop is running (tied to island visibility == count > 0). Guards double-spawn.
 static POLLING: AtomicBool = AtomicBool::new(false);
 /// The last interactive state we applied, so we only dispatch a main-thread toggle on a real change.
 static INTERACTIVE: AtomicBool = AtomicBool::new(false);
+/// The reveal state machine (notch mode). Starts concealed; a fresh arrival announces EXPANDED, which
+/// the frontend keeps visible regardless of this flag, so a concealed start never hides an arrival.
+static REVEAL: Mutex<RevealMachine> = Mutex::new(RevealMachine::CONCEALED);
 
-/// Pure containment test: is the cursor inside the hitbox? `cursor` and `window_origin` are physical
-/// pixels; `scale` converts their difference to the window-relative logical space the hitbox uses.
-/// A non-positive scale (never expected) fails closed to `false` (stay click-through).
-pub fn cursor_in_hitbox(
-    cursor: (f64, f64),
-    window_origin: (f64, f64),
-    scale: f64,
-    hb: Hitbox,
-) -> bool {
-    if scale <= 0.0 {
-        return false;
-    }
-    let rel_x = (cursor.0 - window_origin.0) / scale;
-    let rel_y = (cursor.1 - window_origin.1) / scale;
-    rel_x >= hb.x && rel_x < hb.x + hb.w && rel_y >= hb.y && rel_y < hb.y + hb.h
+/// Reveal state: whether the pill is currently revealed, plus a pending conceal deadline once the
+/// cursor has left the hot zone (the notch region ∪ the pill).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RevealMachine {
+    pub revealed: bool,
+    pub deadline: Option<Instant>,
 }
 
-/// Store the latest hitbox reported by the frontend (BUG B). Replaces any previous value.
+impl RevealMachine {
+    const CONCEALED: RevealMachine = RevealMachine {
+        revealed: false,
+        deadline: None,
+    };
+}
+
+/// Pure containment test in logical, window-relative space.
+pub fn point_in_rect(point: (f64, f64), r: Hitbox) -> bool {
+    // Half-open interval [x, x+w): the far/bottom edges are exclusive.
+    point.0 >= r.x && point.0 < r.x + r.w && point.1 >= r.y && point.1 < r.y + r.h
+}
+
+/// Convert a global-logical cursor and a PHYSICAL window origin into a window-relative LOGICAL point.
+/// This is the T13 coordinate-convention fix: `cursor` is already logical (Quartz points), so only
+/// the window origin needs dividing by `scale`; the difference is then logical. A non-positive scale
+/// (never expected) yields `None` and the caller fails closed (stays click-through / concealed).
+pub fn window_relative(
+    cursor_logical: (f64, f64),
+    window_origin_physical: (f64, f64),
+    scale: f64,
+) -> Option<(f64, f64)> {
+    if scale <= 0.0 {
+        return None;
+    }
+    Some((
+        cursor_logical.0 - window_origin_physical.0 / scale,
+        cursor_logical.1 - window_origin_physical.1 / scale,
+    ))
+}
+
+/// Compute the physical-notch hover region in window-relative LOGICAL px. The island window is
+/// horizontally centered on the monitor, so the cutout center is exactly `envelope_width / 2`; the
+/// region spans the cutout width/height grown by `margin` on the sides and bottom, with its top at
+/// the window top (y = 0, the screen top edge - no point extending above it).
+pub fn notch_region(envelope_width: f64, notch_width: f64, notch_height: f64, margin: f64) -> Hitbox {
+    let center_x = envelope_width / 2.0;
+    Hitbox {
+        x: center_x - notch_width / 2.0 - margin,
+        y: 0.0,
+        w: notch_width + 2.0 * margin,
+        h: notch_height + margin,
+    }
+}
+
+/// Pure reveal transition. `in_hot` is "cursor inside the notch region OR the pill". Entering the hot
+/// zone reveals immediately and clears any pending conceal; leaving it starts (or continues) the
+/// grace countdown and only conceals once `now` reaches the deadline. Concealed + out-of-zone stays
+/// concealed. Deterministic in `now`, so the grace is unit-testable without real time.
+pub fn reveal_step(m: RevealMachine, in_hot: bool, now: Instant, grace: Duration) -> RevealMachine {
+    if in_hot {
+        RevealMachine {
+            revealed: true,
+            deadline: None,
+        }
+    } else if m.revealed {
+        let deadline = m.deadline.unwrap_or(now + grace);
+        if now >= deadline {
+            RevealMachine::CONCEALED
+        } else {
+            RevealMachine {
+                revealed: true,
+                deadline: Some(deadline),
+            }
+        }
+    } else {
+        RevealMachine::CONCEALED
+    }
+}
+
+/// Store the latest shape hitbox reported by the frontend. Replaces any previous value.
 pub fn set_hitbox(hb: Hitbox) {
     if let Ok(mut guard) = HITBOX.lock() {
         *guard = Some(hb);
+    }
+}
+
+/// Set (or clear) the physical-notch hover region. `Some` in notch mode with a known cutout enables
+/// the reveal; `None` (float / non-notch) disables it so the pill stays visible there. Called from
+/// `island.rs` on show / reflow, after settings + geometry are read on the main thread.
+pub fn set_notch_region(region: Option<Hitbox>) {
+    if let Ok(mut guard) = NOTCH_REGION.lock() {
+        *guard = region;
     }
 }
 
@@ -82,7 +183,8 @@ pub fn start_tracking(app: &AppHandle) {
     });
 }
 
-/// Stop the cursor tracker and restore idle click-through. Called by `hide_island`. Idempotent.
+/// Stop the cursor tracker and restore idle click-through + a concealed reveal state. Called by
+/// `hide_island`. Idempotent.
 pub fn stop_tracking(app: &AppHandle) {
     POLLING.store(false, Ordering::SeqCst);
     // If we left the window interactive under the cursor, restore click-through now so a re-show
@@ -90,34 +192,50 @@ pub fn stop_tracking(app: &AppHandle) {
     if INTERACTIVE.swap(false, Ordering::SeqCst) {
         set_island_interactive(app, false);
     }
+    // Reset the reveal machine so the next arrival starts from a clean concealed baseline.
+    if let Ok(mut guard) = REVEAL.lock() {
+        *guard = RevealMachine::CONCEALED;
+    }
 }
 
-/// One poll step: read the cursor + window origin, test containment, and toggle interactivity only
-/// when it changed (so an unchanged state costs no main-thread dispatch).
-fn tick(app: &AppHandle) {
-    let hb = match HITBOX.lock() {
-        Ok(guard) => match *guard {
-            Some(hb) => hb,
-            None => return, // nothing reported yet -> stay click-through
-        },
-        Err(_) => return,
-    };
-    let cursor = match get_cursor_position() {
-        Some(c) => c,
-        None => return,
-    };
-    let window = match app.get_webview_window(ISLAND_LABEL) {
-        Some(w) => w,
-        None => return,
-    };
-    let origin = match window.outer_position() {
-        Ok(p) => (p.x as f64, p.y as f64),
-        Err(_) => return,
-    };
+/// Read the cursor in window-relative LOGICAL px (the T13 convention), or `None` if any input is
+/// missing / degenerate (caller then stays click-through and concealed).
+fn cursor_window_relative(app: &AppHandle) -> Option<(f64, f64)> {
+    let cursor = get_cursor_position()?; // logical points, top-left origin (CGEvent::location)
+    let window = app.get_webview_window(ISLAND_LABEL)?;
+    let origin = window.outer_position().ok()?; // PHYSICAL pixels
     let scale = window.scale_factor().unwrap_or(1.0);
-    let inside = cursor_in_hitbox(cursor, origin, scale, hb);
-    if inside != INTERACTIVE.swap(inside, Ordering::SeqCst) {
-        set_island_interactive(app, inside);
+    window_relative(cursor, (origin.x as f64, origin.y as f64), scale)
+}
+
+/// One poll step: read the cursor once, then (1) toggle interactivity when the cursor enters/leaves
+/// the pill hitbox, and (2) drive the reveal machine from the notch region ∪ pill hot zone.
+fn tick(app: &AppHandle) {
+    let rel = match cursor_window_relative(app) {
+        Some(p) => p,
+        None => return,
+    };
+
+    // (1) Interactivity: the window receives clicks only while the cursor is over the shape.
+    let hitbox = HITBOX.lock().ok().and_then(|g| *g);
+    let in_pill = hitbox.map_or(false, |hb| point_in_rect(rel, hb));
+    if in_pill != INTERACTIVE.swap(in_pill, Ordering::SeqCst) {
+        set_island_interactive(app, in_pill);
+    }
+
+    // (2) Reveal (notch mode only - a set notch region gates it). The hot zone is the notch region
+    // plus the pill itself, so hovering the revealed pill keeps it revealed.
+    let region = NOTCH_REGION.lock().ok().and_then(|g| *g);
+    if let Some(region) = region {
+        let in_hot = in_pill || point_in_rect(rel, region);
+        let prev = REVEAL.lock().map(|g| *g).unwrap_or(RevealMachine::CONCEALED);
+        let next = reveal_step(prev, in_hot, Instant::now(), REVEAL_GRACE);
+        if let Ok(mut guard) = REVEAL.lock() {
+            *guard = next;
+        }
+        if next.revealed != prev.revealed {
+            let _ = app.emit_to(ISLAND_LABEL, REVEAL_EVENT, next.revealed);
+        }
     }
 }
 
@@ -125,56 +243,153 @@ fn tick(app: &AppHandle) {
 mod tests {
     use super::*;
 
-    const HB: Hitbox = Hitbox {
-        x: 191.0, // (600 envelope - 218 pill) / 2, the compact pill's left edge inside the frame
-        y: 0.0,
-        w: 218.0,
+    // --- Coordinate convention, encoding the T13 hardware probe (this machine, macOS 26.5) ---
+    //
+    // Real probe output (scratchpad/probe.swift against the live CGEvent/NSScreen APIs):
+    //   CGEvent.location            = (752.098, 711.063)   <- what get_cursor_position() returns
+    //   NSEvent.mouseLocation       = (752.098, 244.938)   <- x IDENTICAL, y flipped (956 - 711.063)
+    //   NSScreen.main frame         = 1470 x 956 POINTS
+    //   NSScreen.main backing frame = 2940 x 1912 PIXELS,  backingScaleFactor = 2.0
+    //
+    // The cursor x (752) lies inside the LOGICAL width [0, 1470], not the physical [0, 2940], and it
+    // matches NSEvent.mouseLocation.x exactly (documented points). => CGEvent::location is in LOGICAL
+    // points, top-left origin. window.outer_position() is PHYSICAL pixels. So the window origin must
+    // be divided by scale before differencing; the cursor must NOT be.
+
+    #[test]
+    fn window_relative_converts_physical_origin_to_logical_before_differencing() {
+        // 600-wide envelope centered on the 1470-logical built-in panel => window logical x =
+        // (1470-600)/2 = 435, i.e. PHYSICAL outer_position x = 870 at scale 2.0. A cursor at global
+        // logical (735, 40) - right over the centered pill - is window-relative logical (300, 40).
+        let rel = window_relative((735.0, 40.0), (870.0, 0.0), 2.0).unwrap();
+        assert_eq!(rel, (300.0, 40.0));
+    }
+
+    #[test]
+    fn window_relative_bug_repro_old_formula_would_be_wrong() {
+        // The T12 formula was (cursor - origin_physical) / scale. With the numbers above that is
+        // (735 - 870) / 2 = -67.5, a NEGATIVE window-relative x that no hitbox contains -> the window
+        // never turned interactive ("still not touchable"). The corrected value is +300.
+        let wrong = (735.0 - 870.0) / 2.0;
+        let right = window_relative((735.0, 40.0), (870.0, 0.0), 2.0).unwrap().0;
+        assert!(wrong < 0.0);
+        assert_eq!(right, 300.0);
+        assert_ne!(wrong, right);
+    }
+
+    #[test]
+    fn window_relative_at_1x_is_a_plain_difference() {
+        // Non-Retina: scale 1.0, so physical == logical and the origin divide is a no-op.
+        assert_eq!(
+            window_relative((735.0, 40.0), (435.0, 0.0), 1.0).unwrap(),
+            (300.0, 40.0)
+        );
+    }
+
+    #[test]
+    fn window_relative_non_positive_scale_fails_closed() {
+        assert_eq!(window_relative((735.0, 40.0), (870.0, 0.0), 0.0), None);
+    }
+
+    // --- Rectangle containment (half-open) ---
+    const PILL: Hitbox = Hitbox {
+        x: 208.5, // under-notch pill: 183 wide, centered in the 600 envelope, below the cutout
+        y: 32.0,
+        w: 183.0,
         h: 34.0,
     };
 
     #[test]
-    fn cursor_inside_hitbox_at_1x() {
-        // Window origin at physical (660, 0), 1x: a cursor at (860, 20) is 200,20 window-relative,
-        // inside [191..409] x [0..34].
-        assert!(cursor_in_hitbox((860.0, 20.0), (660.0, 0.0), 1.0, HB));
+    fn point_inside_pill_hitbox() {
+        assert!(point_in_rect((300.0, 40.0), PILL)); // dead center under the cutout
     }
 
     #[test]
-    fn cursor_left_of_hitbox_is_out() {
-        // Window-relative x = 700-660 = 40 < 191 -> click-through (the transparent left wing).
-        assert!(!cursor_in_hitbox((700.0, 10.0), (660.0, 0.0), 1.0, HB));
+    fn point_left_of_pill_is_out() {
+        assert!(!point_in_rect((100.0, 40.0), PILL));
     }
 
     #[test]
-    fn cursor_below_hitbox_is_out() {
-        // Window-relative y = 50 > 34 -> below the pill, in the empty envelope -> click-through.
-        assert!(!cursor_in_hitbox((860.0, 50.0), (660.0, 0.0), 1.0, HB));
+    fn point_edges_are_half_open() {
+        assert!(point_in_rect((208.5, 32.0), PILL)); // top-left inclusive
+        assert!(!point_in_rect((208.5 + 183.0, 40.0), PILL)); // right edge exclusive
+        assert!(!point_in_rect((300.0, 32.0 + 34.0), PILL)); // bottom edge exclusive
+    }
+
+    // --- Notch region geometry ---
+    #[test]
+    fn notch_region_is_centered_on_the_envelope_and_grown_by_margin() {
+        // G1 hardware: 183 x 32 cutout, 600 envelope, 8px margin. Center x = 300.
+        let r = notch_region(600.0, 183.0, 32.0, 8.0);
+        assert_eq!(r.x, 300.0 - 183.0 / 2.0 - 8.0); // 199.5
+        assert_eq!(r.y, 0.0);
+        assert_eq!(r.w, 183.0 + 16.0); // 199
+        assert_eq!(r.h, 32.0 + 8.0); // 40
+        // The cutout center is inside the region; a point far below the cutout+margin is not.
+        assert!(point_in_rect((300.0, 5.0), r));
+        assert!(!point_in_rect((300.0, 45.0), r));
+    }
+
+    // --- Reveal state machine: hidden -> hover -> revealed -> grace -> hidden ---
+    fn t0() -> Instant {
+        Instant::now()
     }
 
     #[test]
-    fn scale_factor_converts_physical_to_logical() {
-        // 2x retina: window origin physical (1320, 0). A physical cursor at (1320 + 2*200, 2*20) =
-        // (1720, 40) maps to window-relative logical (200, 20), inside the hitbox. The SAME physical
-        // point would be OUTSIDE if we forgot to divide by scale (400 > 409-191 wing math).
-        assert!(cursor_in_hitbox((1720.0, 40.0), (1320.0, 0.0), 2.0, HB));
-        // Without scale handling the raw delta 400,40 lands past the 218-wide hitbox -> proves the
-        // divide matters.
-        assert!(!cursor_in_hitbox((1720.0, 40.0), (1320.0, 0.0), 1.0, HB));
+    fn reveal_hover_reveals_immediately() {
+        let m = reveal_step(RevealMachine::CONCEALED, true, t0(), REVEAL_GRACE);
+        assert!(m.revealed);
+        assert_eq!(m.deadline, None);
     }
 
     #[test]
-    fn right_and_bottom_edges_are_exclusive() {
-        // Half-open interval [x, x+w): the far edge is NOT inside (matches monitor-bounds convention
-        // in panel.rs get_cursor_monitor_info).
-        let origin = (0.0, 0.0);
-        assert!(cursor_in_hitbox((191.0, 0.0), origin, 1.0, HB)); // left/top edge inclusive
-        assert!(!cursor_in_hitbox((409.0, 0.0), origin, 1.0, HB)); // right edge exclusive (191+218)
-        assert!(!cursor_in_hitbox((300.0, 34.0), origin, 1.0, HB)); // bottom edge exclusive
+    fn reveal_leaving_starts_grace_then_conceals_after_deadline() {
+        let start = t0();
+        let revealed = RevealMachine {
+            revealed: true,
+            deadline: None,
+        };
+        // Cursor just left: still revealed, a deadline is now armed.
+        let arming = reveal_step(revealed, false, start, REVEAL_GRACE);
+        assert!(arming.revealed);
+        let deadline = arming.deadline.expect("grace armed");
+
+        // Before the deadline: still revealed, same deadline (no reset each tick).
+        let mid = reveal_step(arming, false, deadline - Duration::from_millis(1), REVEAL_GRACE);
+        assert!(mid.revealed);
+        assert_eq!(mid.deadline, Some(deadline));
+
+        // At/after the deadline: concealed.
+        let done = reveal_step(mid, false, deadline, REVEAL_GRACE);
+        assert!(!done.revealed);
+        assert_eq!(done.deadline, None);
     }
 
     #[test]
-    fn non_positive_scale_fails_closed() {
-        // A degenerate scale never leaves the window stuck interactive.
-        assert!(!cursor_in_hitbox((200.0, 10.0), (0.0, 0.0), 0.0, HB));
+    fn reveal_reentering_during_grace_cancels_conceal() {
+        let start = t0();
+        let armed = reveal_step(
+            RevealMachine {
+                revealed: true,
+                deadline: None,
+            },
+            false,
+            start,
+            REVEAL_GRACE,
+        );
+        assert!(armed.deadline.is_some());
+        // Cursor comes back before the deadline -> revealed, deadline cleared.
+        let back = reveal_step(armed, true, start + Duration::from_millis(100), REVEAL_GRACE);
+        assert!(back.revealed);
+        assert_eq!(back.deadline, None);
+    }
+
+    #[test]
+    fn reveal_concealed_and_out_stays_concealed() {
+        // The arrival-announce case at the machine level: while concealed and not hovering, the
+        // machine stays concealed every tick (the frontend keeps an EXPANDED arrival visible itself;
+        // this flag only governs the COLLAPSED pill).
+        let m = reveal_step(RevealMachine::CONCEALED, false, t0(), REVEAL_GRACE);
+        assert_eq!(m, RevealMachine::CONCEALED);
     }
 }

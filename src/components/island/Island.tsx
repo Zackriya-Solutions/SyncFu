@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 import {
   forwardRef,
+  useCallback,
   useEffect,
   useImperativeHandle,
   useLayoutEffect,
@@ -20,6 +21,7 @@ import { resolveTimeout } from "@/lib/timeout";
 import {
   createMorphController,
   effectiveIslandSettings,
+  shouldReveal,
   type IslandState,
   type MorphController,
   type NotchGeometry,
@@ -140,12 +142,17 @@ interface IslandProps {
   /** Auto-dismiss handler. The host wires this to `dismiss_notification`, the
    *  same path the card uses -> waiter Dismissed -> CLI exit 1. */
   readonly onDismiss?: (notificationId: string) => void;
-  /** Physical notch cutout geometry (BUG A). In notch mode WITH a geometry the compact pill widens
-   *  to seat visible wings beside the cutout and its content lays out wing-aware; `null`/float keeps
-   *  the pre-existing layout. Supplied by IslandOverlay; omitted (null) in the unit/render harnesses. */
+  /** Physical notch cutout geometry (T13). In notch mode WITH a geometry the pill renders as a
+   *  second notch directly below the cutout (its width matches the cutout and the whole island is
+   *  offset down by the cutout height); `null`/float keeps the pre-existing floating layout. Supplied
+   *  by IslandOverlay; omitted (null) in the unit/render harnesses. */
   readonly notchGeometry?: NotchGeometry | null;
-  /** Settle report (BUG B): fires with the shape's window-relative bounds on every morph settle, so
-   *  the host can push the click-through hitbox to the backend. */
+  /** Backend hover-reveal signal (T13, `island:reveal`): true while the physical notch (or the pill)
+   *  is hovered. Governs the COLLAPSED under-notch pill only; an expanded island is always visible.
+   *  Ignored in float / non-notch mode and while the island is `controlled` (harness/tests). */
+  readonly notchHover?: boolean;
+  /** Settle report (BUG B): fires with the shape's window-relative bounds on every morph settle AND
+   *  on each reveal slide settle, so the host can push the click-through hitbox to the backend. */
   readonly onSettle?: (rect: { x: number; y: number; w: number; h: number }) => void;
 }
 
@@ -159,6 +166,7 @@ export const Island = forwardRef<IslandHandle, IslandProps>(function Island(
     onAction,
     onDismiss,
     notchGeometry = null,
+    notchHover = false,
     onSettle,
   },
   ref
@@ -176,11 +184,12 @@ export const Island = forwardRef<IslandHandle, IslandProps>(function Island(
   const position = positionProp ?? settings.position;
   const isLight = useResolvedLight(appearance);
   const mirrored = mode === "float" && position === "bottom-center";
-  // Wing layout is active only in notch mode WITH a known cutout geometry (BUG A); everything else
-  // keeps the pre-existing compact layout so float mode and jsdom/harness renders are unchanged.
-  const wings = mode === "notch" && notchGeometry != null;
+  // Under-notch mode is active only in notch mode WITH a known cutout geometry (T13); everything else
+  // keeps the pre-existing floating layout so float mode and jsdom/harness renders are unchanged.
+  const underNotch = mode === "notch" && notchGeometry != null;
   // The geometry the morph controller targets, threaded through the SAME configure/applySettings
-  // path the raw settings take: in notch mode the compact width/height widen to seat the wings.
+  // path the raw settings take: in notch mode the compact pill takes the cutout width/height so it
+  // reads as a second notch (islandMorph.effectiveIslandSettings).
   const effSettings = useMemo(
     () => effectiveIslandSettings(settings, mode, notchGeometry),
     [settings, mode, notchGeometry]
@@ -197,6 +206,20 @@ export const Island = forwardRef<IslandHandle, IslandProps>(function Island(
   // Hold the latest onSettle so the once-created controller always calls the current reporter.
   const onSettleRef = useRef(onSettle);
   onSettleRef.current = onSettle;
+
+  // Report the CURRENT shape bounds (window-relative logical px) as the click-through hitbox (BUG B).
+  // getBoundingClientRect is in CSS px relative to the window's top-left and INCLUDES the reveal
+  // wrapper's transform, so a re-report after the reveal slide settles keeps the backend hitbox in
+  // sync with where the pill actually is (concealed => off-screen => not interactive; revealed =>
+  // under the cursor => interactive). Called by the controller on morph settle AND on reveal
+  // transitionend. jsdom boxes are zero, but the CALL shape is what wires the hitbox path.
+  const reportHitbox = useCallback(() => {
+    const report = onSettleRef.current;
+    const island = islandRef.current;
+    if (!report || !island) return;
+    const r = island.getBoundingClientRect();
+    report({ x: r.x, y: r.y, w: r.width, h: r.height });
+  }, []);
 
   const controlled = state != null;
   const [renderState, setRenderState] = useState<IslandState>(state ?? "expanded");
@@ -230,15 +253,6 @@ export const Island = forwardRef<IslandHandle, IslandProps>(function Island(
     const content = contentRef.current;
     if (!island || !svg || !path || !content) return;
 
-    // Report the settled shape bounds (window-relative logical px) as the click-through hitbox
-    // (BUG B). getBoundingClientRect is in CSS px relative to the window's top-left (no window
-    // decorations), matching the backend's window-relative hitbox space.
-    const reportHitbox = () => {
-      const report = onSettleRef.current;
-      if (!report) return;
-      const r = island.getBoundingClientRect();
-      report({ x: r.x, y: r.y, w: r.width, h: r.height });
-    };
     const controller = createMorphController(
       { island, svg, path, content },
       { onSettle: reportHitbox }
@@ -350,19 +364,28 @@ export const Island = forwardRef<IslandHandle, IslandProps>(function Island(
   }, [controlled, isDecision, autoDismissMs, onDismiss, notification.id]);
 
   const expanded = renderState === "expanded";
+  // Hover-reveal (T13): the under-notch collapsed pill is concealed until the physical notch is
+  // hovered; expanded is always visible; float / non-notch always visible. A controlled island
+  // (harness/tests) pins its state and is always revealed so fixtures always render the pill.
+  const revealed = controlled || shouldReveal(underNotch, expanded, notchHover);
+
+  // Re-report the hitbox whenever the reveal state flips. Under reduced motion the wrapper has NO
+  // CSS transition, so onTransitionEnd never fires and the hitbox would go stale (a stale revealed-
+  // position hitbox makes the interactive window eat clicks over an empty region). With transitions
+  // this fires at ~0% progress and transitionend re-reports the settled position - a harmless
+  // double report.
+  useEffect(() => {
+    reportHitbox();
+  }, [revealed, reportHitbox]);
   // The 27 `--s-*` overrides live on the `.di-island` root so they reach BOTH the
   // SVG path (`var(--s-card-bg, ...)`) and the content (invariant c). Compact
   // keeps its hardcoded #000000 fill and never reads these (invariant d).
   const styleVars = buildStyleVars(notification.style, notification.font);
-  // In wing mode publish the cutout width/height as CSS vars so the compact three-zone grid keeps a
-  // dead-center strip the notch width wide, and the expanded card drops its content below the cutout.
-  const rootStyle: CSSProperties = wings
-    ? ({
-        ...styleVars,
-        "--di-notch-w": `${notchGeometry!.widthLogical}px`,
-        "--di-notch-h": `${notchGeometry!.heightLogical}px`,
-      } as CSSProperties)
-    : styleVars;
+  // Under-notch offset var (T13): the reveal wrapper translates the whole island DOWN by the cutout
+  // height so both compact and expanded content sit fully below the physical cutout (island.css).
+  const revealStyle: CSSProperties = underNotch
+    ? ({ "--di-notch-h": `${notchGeometry!.heightLogical}px` } as CSSProperties)
+    : {};
   // Light appearance re-skins content text to a dark ink ramp on the SAME surfaces
   // the controller lightens (expanded card + float compact pill); the notch
   // compact pill keeps its light text on the black fill (invariant d).
@@ -370,23 +393,35 @@ export const Island = forwardRef<IslandHandle, IslandProps>(function Island(
 
   return (
     <div
-      className={lightContent ? "di-island di-light-content" : "di-island"}
-      data-testid="island"
-      data-state={renderState}
-      data-notch={wings ? "true" : undefined}
-      style={rootStyle}
-      ref={islandRef}
-      onClick={handleToggle}
+      className="di-reveal"
+      data-testid="island-reveal"
+      data-notch={underNotch ? "true" : undefined}
+      data-revealed={revealed ? "true" : "false"}
+      style={revealStyle}
+      // Re-report the hitbox once the reveal slide settles so the backend interactivity toggle
+      // matches the pill's real position (own transform only, not child hover transitions).
+      onTransitionEnd={(e) => {
+        if (e.target === e.currentTarget) reportHitbox();
+      }}
     >
-      <svg className="di-shape" preserveAspectRatio="none" aria-hidden="true" ref={svgRef}>
-        <path ref={pathRef} />
-      </svg>
-      <div className="di-content" ref={contentRef}>
-        {expanded ? (
-          <IslandExpanded notification={notification} onAction={onAction} />
-        ) : (
-          <IslandCompact notification={notification} wings={wings} />
-        )}
+      <div
+        className={lightContent ? "di-island di-light-content" : "di-island"}
+        data-testid="island"
+        data-state={renderState}
+        style={styleVars}
+        ref={islandRef}
+        onClick={handleToggle}
+      >
+        <svg className="di-shape" preserveAspectRatio="none" aria-hidden="true" ref={svgRef}>
+          <path ref={pathRef} />
+        </svg>
+        <div className="di-content" ref={contentRef}>
+          {expanded ? (
+            <IslandExpanded notification={notification} onAction={onAction} />
+          ) : (
+            <IslandCompact notification={notification} />
+          )}
+        </div>
       </div>
     </div>
   );

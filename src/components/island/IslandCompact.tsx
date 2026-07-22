@@ -17,14 +17,9 @@ const RING_R = 9; // mockup mini-ring radius (ringSVG(..., 9), mockup L1495)
 
 interface IslandCompactProps {
   readonly notification: NotificationPayload;
-  /** Wing layout (BUG A): a real notch cutout sits between the glyph and the trailing slot, so the
-   *  sender label is OMITTED (the ~4px underhang below the 32pt cutout cannot seat 11.5px text - see
-   *  island.css). The glyph lives in the left wing, the trailing slot in the right wing, and the
-   *  center strip (cutout width) holds nothing. `false` keeps the glyph/label/trailing flex row. */
-  readonly wings?: boolean;
 }
 
-export function IslandCompact({ notification, wings = false }: IslandCompactProps) {
+export function IslandCompact({ notification }: IslandCompactProps) {
   const { sender, progress } = notification;
   const pct = progress ? progressPercent(progress.value) : 0;
   const { dashArray, dashOffset } = ringDash(progress?.value ?? 0, RING_R);
@@ -32,7 +27,7 @@ export function IslandCompact({ notification, wings = false }: IslandCompactProp
   return (
     <div className="di-compact" data-testid="island-compact">
       <span className="di-dot" data-testid="island-compact-glyph" />
-      {!wings && <span className="di-sender">{sender}</span>}
+      <span className="di-sender">{sender}</span>
       <span className="di-trailing" data-testid="island-compact-trailing">
         {progress && (
           <span className="di-liveactivity" data-testid="island-compact-progress">

@@ -1,8 +1,8 @@
-// BUG A harness: the REAL Island in notch mode with the G1 hardware cutout
-// geometry (183 x 32), plus a black rectangle overlaying the exact cutout
-// position. The spec proves NO compact/expanded content leaf renders underneath
-// that rectangle (the leaf-measurement wall-audit technique) - i.e. the pill's
-// content lives in the visible wings and below the cutout, never behind it.
+// T13 under-notch harness: the REAL Island in notch mode with the G1 hardware
+// cutout geometry (183 x 32), plus a black rectangle overlaying the exact cutout
+// position. The island renders as a second notch offset BELOW the cutout, so the
+// spec proves NO compact/expanded content leaf renders underneath that rectangle
+// (the leaf-measurement wall-audit technique) - the whole pill sits below the notch.
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { Island } from "@/components/island/Island";

@@ -1,4 +1,5 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { IslandAppearance, IslandMode } from "@/types/islandSettings";
 import type { IslandRow, IslandSnapshot } from "@/types/islandSnapshot";
 import { useIslandSettingsStore } from "@/stores/islandSettingsStore";
@@ -6,6 +7,7 @@ import { resolveTimeout } from "@/lib/timeout";
 import {
   createMorphController,
   type MorphController,
+  type NotchGeometry,
 } from "@/lib/islandMorph";
 import { NotificationIcon } from "@/components/overlay/NotificationIcon";
 import { IslandList } from "./IslandList";
@@ -63,6 +65,13 @@ interface IslandGroupProps {
    *  (values come from the settings store). */
   readonly appearance?: IslandAppearance;
   readonly mode?: IslandMode;
+  /** Physical notch cutout geometry (T13). In notch mode the grouped spotlight is offset DOWN by the
+   *  cutout height so it sits below the notch (never behind it); the group stays ALWAYS visible (no
+   *  hover-reveal - it represents a pile the user is actively triaging). Null/float keeps the layout. */
+  readonly notchGeometry?: NotchGeometry | null;
+  /** Settle report (BUG B): the shape hitbox on morph settle, so the backend cursor tracker makes the
+   *  grouped spotlight clickable (parity with the single island). */
+  readonly onSettle?: (rect: { x: number; y: number; w: number; h: number }) => void;
 }
 
 export function IslandGroup({
@@ -71,6 +80,8 @@ export function IslandGroup({
   onDismiss,
   appearance: appearanceProp,
   mode: modeProp,
+  notchGeometry = null,
+  onSettle,
 }: IslandGroupProps) {
   const settings = useIslandSettingsStore((s) => s.settings);
   const appearance = appearanceProp ?? settings.appearance;
@@ -88,8 +99,21 @@ export function IslandGroup({
   settingsRef.current = settings;
   const isReduced = () =>
     settingsRef.current.reducedMotion || prefersReducedMotion();
+  const onSettleRef = useRef(onSettle);
+  onSettleRef.current = onSettle;
 
   const [expanded, setExpanded] = useState(false);
+  // Under-notch offset (T13): in notch mode the grouped spotlight is pushed below the cutout.
+  const underNotch = mode === "notch" && notchGeometry != null;
+
+  // Report the shape bounds as the click-through hitbox (BUG B) so the spotlight is clickable.
+  const reportHitbox = useCallback(() => {
+    const report = onSettleRef.current;
+    const island = islandRef.current;
+    if (!report || !island) return;
+    const r = island.getBoundingClientRect();
+    report({ x: r.x, y: r.y, w: r.width, h: r.height });
+  }, []);
 
   // Create the controller once and arrive at the compact spotlight instantly.
   // Model B defaults to the collapsed spotlight; the user expands to the list.
@@ -100,7 +124,10 @@ export function IslandGroup({
     const content = contentRef.current;
     if (!island || !svg || !path || !content) return;
 
-    const controller = createMorphController({ island, svg, path, content });
+    const controller = createMorphController(
+      { island, svg, path, content },
+      { onSettle: reportHitbox }
+    );
     controllerRef.current = controller;
     controller.configure(settingsRef.current);
     controller.snap("compact", isReduced());
@@ -165,23 +192,37 @@ export function IslandGroup({
   // A light expanded card / float pill re-skins content to the dark ink ramp; the
   // notch compact spotlight keeps its light text on black (parity with Island).
   const lightContent = isLight && (expanded || mode === "float");
+  // Under-notch offset var (T13): translate the grouped spotlight down by the cutout height.
+  const revealStyle: CSSProperties = underNotch
+    ? ({ "--di-notch-h": `${notchGeometry!.heightLogical}px` } as CSSProperties)
+    : {};
 
   return (
     <div
-      className={lightContent ? "di-island di-light-content" : "di-island"}
-      data-testid="island-group"
-      data-state={expanded ? "expanded" : "compact"}
-      ref={islandRef}
+      className="di-reveal"
+      data-testid="island-group-reveal"
+      data-notch={underNotch ? "true" : undefined}
+      data-revealed="true"
+      style={revealStyle}
+      onTransitionEnd={(e) => {
+        if (e.target === e.currentTarget) reportHitbox();
+      }}
     >
-      <svg
-        className="di-shape"
-        preserveAspectRatio="none"
-        aria-hidden="true"
-        ref={svgRef}
+      <div
+        className={lightContent ? "di-island di-light-content" : "di-island"}
+        data-testid="island-group"
+        data-state={expanded ? "expanded" : "compact"}
+        ref={islandRef}
       >
-        <path ref={pathRef} />
-      </svg>
-      <div className="di-content" ref={contentRef}>
+        <svg
+          className="di-shape"
+          preserveAspectRatio="none"
+          aria-hidden="true"
+          ref={svgRef}
+        >
+          <path ref={pathRef} />
+        </svg>
+        <div className="di-content" ref={contentRef}>
         {expanded ? (
           <IslandList
             snapshot={snapshot}
@@ -216,6 +257,7 @@ export function IslandGroup({
             </button>
           )
         )}
+        </div>
       </div>
     </div>
   );
