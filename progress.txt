@@ -337,3 +337,8 @@ Worktrees preserved: t5b, t6, t10, t11 (earlier 13 removed on user instruction).
   PHYSICAL pixels - containment never true on 2x Retina; unit tests encoded the author's own wrong
   convention. T13 worker dispatched: redesign + verified-convention fix + live probe evidence.
   Pre-existing latent: get_cursor_monitor_info same unit mix (flagged, out of scope).
+- HARDWARE ITERATION 3 (user): T13 hidden-when-collapsed lost the ambient "something is happening"
+  signal. Ratified synthesis: collapsed = AMBIENT WINGS indicator (T12 shape: cutout+2x24px wings,
+  cutout height, accent dot / mini progress-ring in the right wing, no other content) -> hover
+  reveals the T13 under-notch pill -> expanded unchanged. Hot-zone extends over the wings. T14
+  worker dispatched (also folds in T13-review comment nits).
