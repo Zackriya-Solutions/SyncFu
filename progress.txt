@@ -352,3 +352,10 @@ Worktrees preserved: t5b, t6, t10, t11 (earlier 13 removed on user instruction).
   pointer-events hardening APPLIED (HMR); single-instance callback should open_main_window
   (creates-if-absent) - QUEUED for next Rust touch. Observation: clear-all's clears-cards-too side
   effect is dev-documented only.
+- HARDWARE ITERATION 5 (user): REGRESSION vs original card - island does not follow the active
+  screen (T3's documented multi-display deferral now invalidated by real dual-display use) "and
+  all" -> T17 dispatched: cursor-monitor targeting with per-display notch-vs-float auto-selection,
+  the T13-flagged points-vs-physical get_cursor_monitor_info fix (also corrects the CARD's
+  follow-me on Retina), plus a systematic card-vs-island parity audit (hover-pause, fonts, sound,
+  markdown, +anything found). T16 docs runs in parallel (T17 barred from doc files; doc-impact
+  list returned instead).
