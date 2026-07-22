@@ -38,6 +38,10 @@ export function IslandOverlay() {
   // is hovered. Governs the collapsed under-notch pill's visibility; the backend owns the state
   // machine (notch-region + grace), so the frontend only mirrors the boolean it emits.
   const [notchHover, setNotchHover] = useState(false);
+  // Backend pill/card-hover signal (T17, `island:hover`): true while the cursor is over the visible
+  // island shape. Pauses the single Island's auto-dismiss while hovered, matching the card's JS
+  // hover-pause. Distinct from `notchHover`, which governs only the notch-region reveal.
+  const [hovered, setHovered] = useState(false);
 
   // Push the settled shape bounds to the backend as the click-through hitbox (BUG B). Reported on
   // morph settle (via Island's onSettle) so the cursor tracker can make the shown capsule
@@ -188,6 +192,27 @@ export function IslandOverlay() {
     };
   }, []);
 
+  // Hover signal (T17): the backend emits `island:hover` (bool) when the cursor enters/leaves the
+  // visible shape. No creation read - a freshly shown island starts un-hovered.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let active = true;
+    (async () => {
+      try {
+        unlisten = await tauriEvent.listen<boolean>("island:hover", (ev) => {
+          setHovered(!!ev.payload);
+        });
+      } catch {
+        // No backend (browser harness): keep the un-hovered default.
+      }
+      if (!active) unlisten?.();
+    })();
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, []);
+
   const { mode, position } = useIslandSettingsStore((s) => s.settings);
   const layoutPosition = mode === "float" ? position : "center";
 
@@ -201,6 +226,7 @@ export function IslandOverlay() {
   useEffect(() => {
     if (snapshot.count === 0) {
       setNotchHover(false);
+      setHovered(false);
       getCurrentWindow().hide();
     }
   }, [snapshot.count]);
@@ -222,6 +248,7 @@ export function IslandOverlay() {
           onDismiss={handleDismiss}
           notchGeometry={notchGeometry}
           notchHover={notchHover}
+          hovered={hovered}
           onSettle={reportHitbox}
         />
       )}
