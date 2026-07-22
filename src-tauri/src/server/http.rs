@@ -11,6 +11,7 @@ use axum::{
 use futures::stream::Stream;
 use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
+use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
 
 use crate::notification::manager::NotificationManager;
@@ -279,6 +280,40 @@ async fn handle_action(
     Ok(Json(result))
 }
 
+/// Drop-guard that reconciles the waiter registry when a `--wait` SSE stream is torn
+/// down by the CLIENT (disconnect / Ctrl+C), which `notify()` never observes. Without
+/// it a client that dies mid-wait leaves its entry forever: the notification stays
+/// `hasWaiter=true` - permanently dedupe-exempt (A4) and auto-dismiss-suppressed (F2)
+/// - so a same-key resend coexists with the zombie. Held by (and only by) the wait
+/// stream, so it drops exactly when the connection ends. Removal is delegated to
+/// `remove_if_orphaned`, whose channel-identity + receiver-liveness guards keep a late
+/// drop from a resolved/replaced/shared channel from evicting a live entry.
+struct WaitGuard {
+    state: ServerState,
+    id: String,
+    sender: broadcast::Sender<WaitEvent>,
+}
+
+impl Drop for WaitGuard {
+    fn drop(&mut self) {
+        // Drop is sync; the registry lock is async - hand the cleanup to the runtime.
+        // By the time it acquires the lock, this stream's receiver is fully dropped,
+        // so `receiver_count()` is accurate.
+        let state = self.state.clone();
+        let id = std::mem::take(&mut self.id);
+        let sender = self.sender.clone();
+        tokio::spawn(async move {
+            if state.waiters.remove_if_orphaned(&id, &sender).await {
+                // The dead waiter is gone: re-emit so hasWaiter / dedupe reconciles
+                // live (a zombie no longer blocks a same-key resend from merging).
+                if let Some(ref app) = state.app_handle {
+                    crate::emit_island_snapshot(app, &state.manager, &state.waiters).await;
+                }
+            }
+        });
+    }
+}
+
 async fn handle_wait(
     State(state): State<ServerState>,
     axum::extract::Path(id): axum::extract::Path<String>,
@@ -291,12 +326,17 @@ async fn handle_wait(
     // Subscribe BEFORE checking existence to avoid race condition:
     // if the notification is resolved between our check and subscribe,
     // we'd miss the event.
-    let mut rx = state.waiters.subscribe(&id).await;
+    let (sender, mut rx) = state.waiters.subscribe_with_sender(&id).await;
 
     // Verify notification still exists
     let exists = state.manager.get(&id).await.is_some();
     if !exists {
         info!("Wait: notification {id} already resolved");
+        // Clean up the entry we just created: no stream (hence no drop-guard) carries
+        // it on this early path, so without this an already-resolved wait would leak a
+        // permanent zombie entry. Drop our receiver first so the liveness guard sees 0.
+        drop(rx);
+        state.waiters.remove_if_orphaned(&id, &sender).await;
         let stream = futures::stream::iter(vec![Ok(Event::default()
             .event("message")
             .data(
@@ -317,7 +357,17 @@ async fn handle_wait(
         crate::emit_island_snapshot(app, &state.manager, &state.waiters).await;
     }
 
+    // Cleanup on client disconnect (Ctrl+C): the guard is captured by the stream
+    // generator, so it drops when the connection ends - even if the stream is dropped
+    // before it is ever polled (the generator still owns the captured guard).
+    let guard = WaitGuard {
+        state: state.clone(),
+        id: id.clone(),
+        sender,
+    };
+
     let stream = async_stream::stream! {
+        let _guard = guard;
         // Send connected event so CLI knows the stream is live
         yield Ok(Event::default()
             .event("message")
@@ -411,6 +461,7 @@ mod tests {
     use super::*;
     use axum::body::Body;
     use axum::http::Request;
+    use futures::StreamExt;
     use tower::ServiceExt;
 
     fn test_state() -> ServerState {
@@ -1188,6 +1239,123 @@ mod tests {
 
         let event = rx.recv().await.unwrap();
         assert_eq!(event, WaitEvent::Dismissed);
+    }
+
+    #[tokio::test]
+    async fn test_wait_client_disconnect_cleans_up_registry() {
+        // The user's reproduction, at its root: a --wait client that dies (Ctrl+C)
+        // must not leave its registry entry behind. We open the SSE wait stream,
+        // consume ONLY the `connected` frame (an ephemeral in-process server via
+        // `oneshot` - NEVER read the body to completion, which would block forever on
+        // an unresolved wait), then drop the stream to simulate the disconnect.
+        let state = test_state();
+        let payload = NotificationPayload {
+            id: "wait-dc".to_string(),
+            sender: "ci".to_string(),
+            title: "Deploy?".to_string(),
+            body: "prod".to_string(),
+            icon: None,
+            priority: Priority::Normal,
+            presentation: Presentation::Island,
+            timeout: Timeout::default(),
+            actions: vec![Action {
+                id: "approve".to_string(),
+                label: "Approve".to_string(),
+                style: crate::notification::types::ActionStyle::Primary,
+                icon: None,
+                bg: None,
+                color: None,
+                border_color: None,
+            }],
+            progress: None,
+            group: None,
+            theme: None,
+            sound: None,
+            callback_url: None,
+            style: None,
+            created_at: chrono::Utc::now(),
+        };
+        state.manager.add(payload).await;
+
+        let app = build_router(state.clone());
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/notify/wait-dc/wait")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        // Poll exactly one frame (the `connected` event) so the stream started and the
+        // waiter is live, then drop the body - the client hanging up.
+        let mut body = response.into_body().into_data_stream();
+        let first = body.next().await.expect("connected frame").expect("frame ok");
+        assert!(
+            String::from_utf8_lossy(&first).contains("connected"),
+            "first frame is connected"
+        );
+        assert_eq!(state.waiters.waiter_count().await, 1);
+
+        drop(body); // client disconnect (Ctrl+C)
+
+        // The drop-guard spawns its cleanup on the runtime; give it a few ticks.
+        let mut cleaned = false;
+        for _ in 0..50 {
+            if state.waiters.waiter_count().await == 0 {
+                cleaned = true;
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert!(cleaned, "disconnect must remove the leaked waiter entry");
+        assert!(
+            !state.waiters.active_ids().await.contains("wait-dc"),
+            "the dead waiter no longer marks the notification hasWaiter (dedupe reconciles)"
+        );
+
+        // And the notification can still be resolved by a fresh action on its id.
+        let app2 = build_router(state.clone());
+        let resp2 = app2
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/notify/wait-dc/action")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_string(&serde_json::json!({ "action_id": "approve" }))
+                            .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp2.status(), StatusCode::OK);
+        assert_eq!(state.manager.active_count().await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_wait_already_resolved_does_not_leak_entry() {
+        // The early-return path (notification already gone) subscribes before the
+        // existence check (the deliberate race guard) - it must clean up the entry it
+        // created so an already-resolved wait never leaks a permanent zombie.
+        let state = test_state();
+        let app = build_router(state.clone());
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/notify/ghost/wait")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        // Consume the immediate dismissed frame.
+        let _ = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        assert_eq!(state.waiters.waiter_count().await, 0);
     }
 
     #[tokio::test]

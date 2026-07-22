@@ -324,6 +324,9 @@ fn tick(app: &AppHandle) {
     // transient cursor dropout is inert (no reposition storm at a boundary). `cursor_monitor_info`
     // does a second cheap CGEvent read (the same off-main kind steps 1-2 above use) plus a monitor
     // enumeration, gated to only run while the island is visible (R-PERF: nothing polls when hidden).
+    // NOTE: that enumeration (Tauri `available_monitors`) runs here off the main thread at the ~10Hz
+    // poll rate. It is a cheap read-only AppKit query and matches existing codebase practice (the
+    // panel tracker enumerates the same way); acceptable at this cadence while the island is shown.
     let current_monitor = cursor_monitor_info(app).map(monitor_key);
     let prev_monitor = CURSOR_MONITOR.lock().ok().and_then(|g| *g);
     let (next_monitor, changed) = monitor_change_step(prev_monitor, current_monitor);

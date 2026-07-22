@@ -180,6 +180,17 @@ export function IslandGroup({
     return () => observer.disconnect();
   }, [expanded, snapshot]);
 
+  // Re-report the hitbox on every expanded-view size change the morph's onSettle does
+  // not already cover (BUG B). Expand/collapse settle through the controller, but a
+  // row-count change (a notification arriving/leaving while the list is open) grows or
+  // shrinks the shape via content auto-height with no morph re-settle of its own - and
+  // jsdom has no ResizeObserver. Guarded to the expanded state (the compact spotlight
+  // size is row-count-independent) and fires post-commit so the rect is settled. The
+  // accordion path reports via IslandList's onExpandedRowChange below.
+  useEffect(() => {
+    if (expanded) reportHitbox();
+  }, [expanded, snapshot, reportHitbox]);
+
   // Per-item auto-dismiss, PAUSED while the list is open (D5). Restarts from full
   // on collapse. Critical (resolveTimeout === null) and waiter-bearing rows never
   // fire (F2 suppression scope).
@@ -239,6 +250,7 @@ export function IslandGroup({
             onRowActionId={onRowActionId}
             onRowDismiss={onDismiss}
             onClearAll={onClearAll}
+            onExpandedRowChange={reportHitbox}
           />
         ) : (
           spot && (

@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { IslandRow, IslandSnapshot } from "@/types/islandSnapshot";
 import { NotificationIcon } from "@/components/overlay/NotificationIcon";
 import { buildActionStyle } from "@/lib/actionStyle";
@@ -72,6 +72,11 @@ interface IslandListProps {
   /** Clear every island notification (T15, the header "Clear all"). Wired to the
    *  backend dismiss-all path so it empties even deduped/merged notifications. */
   readonly onClearAll: () => void;
+  /** Fires whenever the inline accordion opens/closes a row (BUG B). The group wires
+   *  it to re-report the shape hitbox, because inline expansion grows the shape via
+   *  content auto-height and the only other signal (ResizeObserver -> morph settle)
+   *  is indirect (and absent in jsdom). */
+  readonly onExpandedRowChange?: () => void;
 }
 
 export function IslandList({
@@ -81,14 +86,26 @@ export function IslandList({
   onRowActionId,
   onRowDismiss,
   onClearAll,
+  onExpandedRowChange,
 }: IslandListProps) {
   const { rows, merged } = snapshot;
   const scrolls = rows.length > VISIBLE_ROWS;
   const countText =
     `${rows.length}` + (merged > 0 ? ` · ${merged} merged` : "");
-  // Accordion: at most one expanded row. Local view state - a snapshot replace or
-  // a collapse-to-spotlight (this component unmounts) resets it (G10).
+  // Accordion: at most one expanded row. Local ephemeral view state (never in the
+  // snapshot - G10). It PERSISTS across snapshot replaces while the open row survives
+  // - a re-render does not unmount this component - and is cleared only when the list
+  // collapses to the spotlight (this component unmounts). A row that leaves the
+  // snapshot simply stops rendering its expansion (its id matches no row).
   const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  // Re-report the shape hitbox on every accordion open/close (BUG B): the growth is
+  // otherwise invisible to the backend click-through region until a ResizeObserver
+  // re-settles the morph. Fires post-commit, so the group's getBoundingClientRect
+  // reads the settled box. Parity with the single island's reveal-keyed re-report.
+  useEffect(() => {
+    onExpandedRowChange?.();
+  }, [expandedId, onExpandedRowChange]);
 
   return (
     <div className="di-list" data-testid="island-list">
@@ -126,6 +143,7 @@ export function IslandList({
         {rows.map((row, i) => {
           const expandable = isExpandable(row);
           const isOpen = expandable && expandedId === row.id;
+          const expandId = `island-row-expand-${row.id}`;
           const inner = (
             <>
               <span className="di-lrow-dot" />
@@ -160,6 +178,7 @@ export function IslandList({
                     data-testid="island-row-body"
                     data-id={row.id}
                     aria-expanded={isOpen}
+                    aria-controls={expandId}
                     aria-label={isOpen ? "Hide actions" : "Show all actions"}
                     onClick={() => setExpandedId(isOpen ? null : row.id)}
                   >
@@ -204,6 +223,7 @@ export function IslandList({
               {isOpen && (
                 <div
                   className="di-lrow-expand"
+                  id={expandId}
                   data-testid="island-row-expand"
                   data-id={row.id}
                 >
