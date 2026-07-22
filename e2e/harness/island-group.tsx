@@ -81,7 +81,12 @@ for (const fx of FIXTURES) {
   root.appendChild(cell);
   createRoot(cell).render(
     <React.StrictMode>
-      <IslandGroup snapshot={fx.snapshot} onRowAction={noop} onDismiss={noop} />
+      <IslandGroup
+        snapshot={fx.snapshot}
+        onRowAction={noop}
+        onDismiss={noop}
+        onClearAll={noop}
+      />
     </React.StrictMode>
   );
 }

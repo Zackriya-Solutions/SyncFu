@@ -161,6 +161,11 @@ const FIXTURES: readonly Fixture[] = [
   },
 ];
 
+// A noop onDismiss so the expanded card renders its hover-visible close (T15).
+// It stays opacity:0 / position:absolute at rest, so every existing baseline is
+// pixel-identical; the island-render spec asserts its presence + hover reveal.
+// Controlled `state` suppresses the auto-dismiss effect, so noop is never called.
+const noop = () => {};
 const root = document.getElementById("root")!;
 for (const fx of FIXTURES) {
   const cell = document.createElement("div");
@@ -169,7 +174,7 @@ for (const fx of FIXTURES) {
   root.appendChild(cell);
   createRoot(cell).render(
     <React.StrictMode>
-      <Island notification={fx.notification} state={fx.state} />
+      <Island notification={fx.notification} state={fx.state} onDismiss={noop} />
     </React.StrictMode>
   );
 }

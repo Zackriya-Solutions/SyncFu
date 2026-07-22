@@ -63,6 +63,24 @@ test("styled-27 fixture wires overrides onto the expanded surface", async ({ pag
   await expect(path).toHaveCSS("fill", "rgba(16, 185, 129, 0.96)");
 });
 
+// T15: the expanded card carries a hover-visible close button that is invisible at
+// rest (so every baseline above is unchanged) and reveals on hover. The critical
+// fixture is the primary bug case: a no-action critical notification that never
+// auto-dismisses must still be closable.
+test("expanded card has a close button, hidden at rest and revealed on hover", async ({
+  page,
+}) => {
+  const close = page.locator("#cell-expanded-critical .di-close");
+  await expect(close).toHaveCount(1);
+  await expect(close).toHaveAttribute("aria-label", "Dismiss");
+  // Out of flow + transparent at rest: no baseline impact.
+  await expect(close).toHaveCSS("position", "absolute");
+  await expect(close).toHaveCSS("opacity", "0");
+  // Hovering the island reveals it (opacity -> 1).
+  await page.locator("#cell-expanded-critical .di-island").hover();
+  await expect(close).toHaveCSS("opacity", "1");
+});
+
 // T5a: a decision renders primary/danger buttons and a PAUSED countdown, while a
 // timed non-decision (expanded-basic) renders a RUNNING countdown. Both cover the
 // "actions + countdown render" acceptance against the real components.

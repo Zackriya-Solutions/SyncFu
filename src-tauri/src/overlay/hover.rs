@@ -336,6 +336,16 @@ mod tests {
 
     // --- Notch region geometry ---
     #[test]
+    fn ambient_wing_is_pinned_to_the_frontend_constant() {
+        // Pin the shared ambient wing half-width (T14/T15 follow-up). This const and
+        // the frontend `AMBIENT_WING` in src/lib/islandMorph.ts size the SAME visible
+        // shape AND its hover region; a silent change to either desyncs the wings from
+        // the hot zone. Changing the value forces updating this literal, which is the
+        // deliberate cross-file drift tripwire (the region tests below also feed 24.0).
+        assert_eq!(AMBIENT_WING, 24.0);
+    }
+
+    #[test]
     fn notch_region_covers_the_cutout_plus_both_ambient_wings_and_the_margin() {
         // G1 hardware: 183 x 32 cutout, 600 envelope, 24px ambient wing, 8px margin. Center x = 300.
         let r = notch_region(600.0, 183.0, 32.0, 24.0, 8.0);

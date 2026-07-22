@@ -97,9 +97,14 @@ interface IslandExpandedProps {
   readonly notification: NotificationPayload;
   /** Reuses the card's action path: host wires this to `action_callback`. */
   readonly onAction?: (notificationId: string, actionId: string) => void;
+  /** Dismiss affordance (T15): the hover-visible close button resolves the SAME
+   *  exit-1 path the card's close uses (dismiss_notification -> waiter Dismissed).
+   *  The primary fix for CRITICAL no-action notifications, which never auto-dismiss
+   *  and carry no action buttons - previously undismissable from the island UI. */
+  readonly onDismiss?: (notificationId: string) => void;
 }
 
-export function IslandExpanded({ notification, onAction }: IslandExpandedProps) {
+export function IslandExpanded({ notification, onAction, onDismiss }: IslandExpandedProps) {
   const {
     id,
     sender,
@@ -126,6 +131,34 @@ export function IslandExpanded({ notification, onAction }: IslandExpandedProps) 
 
   return (
     <div className="di-expanded" data-testid="island-expanded">
+      {onDismiss && (
+        <button
+          type="button"
+          className="di-close"
+          data-testid="island-close"
+          aria-label="Dismiss"
+          // stopPropagation belts the interactive-element guard in Island.tsx's
+          // click-to-collapse handler (which already ignores `button`): the close
+          // must dismiss, never toggle the expanded<->compact surface.
+          onClick={(e) => {
+            e.stopPropagation();
+            onDismiss(id);
+          }}
+        >
+          <svg
+            width="8"
+            height="8"
+            viewBox="0 0 10 10"
+            fill="none"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeWidth="2.5"
+          >
+            <line x1="2" y1="2" x2="8" y2="8" />
+            <line x1="8" y1="2" x2="2" y2="8" />
+          </svg>
+        </button>
+      )}
       <div className="di-erow">
         {icon && (
           <div className="di-icon">

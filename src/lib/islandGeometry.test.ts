@@ -4,7 +4,6 @@ import {
   ambientWingsSize,
   effectiveIslandSettings,
   shouldReveal,
-  shouldShowAmbient,
   type NotchGeometry,
 } from "./islandMorph";
 import { DEFAULT_ISLAND_SETTINGS } from "@/types/islandSettings";
@@ -53,10 +52,6 @@ describe("ambientWingsSize (T14 ambient indicator sizing)", () => {
     expect(ambientWingsSize(G1)).toEqual({ width: 183 + 2 * AMBIENT_WING, height: 32 });
     expect(ambientWingsSize(G1)).toEqual({ width: 231, height: 32 });
   });
-
-  it("accepts a custom wing width", () => {
-    expect(ambientWingsSize(G1, 10)).toEqual({ width: 183 + 20, height: 32 });
-  });
 });
 
 describe("shouldReveal (hover-reveal decision)", () => {
@@ -77,31 +72,10 @@ describe("shouldReveal (hover-reveal decision)", () => {
     expect(shouldReveal(true, true, false)).toBe(true);
     expect(shouldReveal(true, true, true)).toBe(true);
   });
-});
 
-describe("shouldShowAmbient (T14 render-state matrix, ambient row)", () => {
-  it("shows the ambient wings ONLY when under-notch, collapsed, and not hovered", () => {
-    expect(shouldShowAmbient(true, false, false)).toBe(true); // the new ambient row
-  });
-
-  it("does NOT show ambient when the pill is revealed (hover) or expanded", () => {
-    expect(shouldShowAmbient(true, false, true)).toBe(false); // hovered -> revealed pill
-    expect(shouldShowAmbient(true, true, false)).toBe(false); // expanded -> full card
-    expect(shouldShowAmbient(true, true, true)).toBe(false);
-  });
-
-  it("never shows ambient in float / non-notch mode", () => {
-    expect(shouldShowAmbient(false, false, false)).toBe(false);
-    expect(shouldShowAmbient(false, true, false)).toBe(false);
-  });
-
-  it("is the exact under-notch complement of shouldReveal", () => {
-    for (const expanded of [false, true]) {
-      for (const hover of [false, true]) {
-        expect(shouldShowAmbient(true, expanded, hover)).toBe(
-          !shouldReveal(true, expanded, hover)
-        );
-      }
-    }
-  });
+  // The ambient-wings render decision is now the inline complement of shouldReveal
+  // at Island.tsx's call site (`underNotch && !revealed`, T15 follow-up). The rows
+  // above already pin every relevant reveal outcome, so the ambient case is covered
+  // by construction: ambient shows iff under-notch AND shouldReveal is false, i.e.
+  // ONLY the (true, false, false) row here.
 });

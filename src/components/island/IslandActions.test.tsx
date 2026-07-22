@@ -154,6 +154,40 @@ describe("Island actions / --wait / timeouts / countdown (T5a)", () => {
     expect(container.querySelector(".di-countdown")).not.toBeInTheDocument();
   });
 
+  it("CRITICAL no-action is dismissable via the hover close button (the T15 bug fix)", () => {
+    setup();
+    const onDismiss = vi.fn();
+    render(
+      <Island
+        notification={makeNotification({ priority: "critical" })}
+        onDismiss={onDismiss}
+      />
+    );
+    // Critical arrives expanded, never auto-dismisses, and carries no action
+    // buttons - previously stuck with no UI dismissal path. The close resolves it
+    // via the SAME exit-1 dismiss_notification path a normal timeout would use.
+    fireEvent.click(screen.getByTestId("island-close"));
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+    expect(onDismiss).toHaveBeenCalledWith("isl-1");
+  });
+
+  it("the close click DISMISSES without toggling the surface to compact", () => {
+    setup();
+    const onDismiss = vi.fn();
+    render(
+      <Island
+        notification={makeNotification({ priority: "critical" })}
+        onDismiss={onDismiss}
+      />
+    );
+    fireEvent.click(screen.getByTestId("island-close"));
+    // stopPropagation + the interactive-element guard keep click-to-collapse from
+    // firing: still the expanded card, never flipped to the compact pill.
+    expect(onDismiss).toHaveBeenCalledWith("isl-1");
+    expect(screen.getByTestId("island")).toHaveAttribute("data-state", "expanded");
+    expect(screen.getByTestId("island-expanded")).toBeInTheDocument();
+  });
+
   it("maps action styles to the mockup di-btn2 variants (primary=accent, danger)", () => {
     setup();
     const { container } = render(

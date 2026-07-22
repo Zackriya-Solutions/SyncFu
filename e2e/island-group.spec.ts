@@ -95,3 +95,29 @@ test("Models A and C are absent (guard G11)", async ({ page }) => {
   await expect(page.locator('[data-act="next"]')).toHaveCount(0);
   await expect(page.locator(".stack-host")).toHaveCount(0);
 });
+
+// T15 dismissal affordances: the list header carries a persistent "Clear all"
+// beside the count, and every row carries a secondary per-row close (hidden at
+// rest, revealed on row hover) alongside its primary action button.
+test("expanded list has a Clear all control and per-row close affordances", async ({
+  page,
+}) => {
+  await page.locator("#cell-list .di-spot").click();
+  await settle(page);
+
+  // Header: Clear all sits beside the count, action buttons stay primary.
+  const clear = page.locator("#cell-list .di-list-clear");
+  await expect(clear).toHaveCount(1);
+  await expect(clear).toHaveText("Clear all");
+
+  // Every row has a secondary close (x): invisible at rest so the list baseline is
+  // unchanged, and it does not displace the primary action button in flow.
+  const rowCloses = page.locator("#cell-list .di-lrow-close");
+  await expect(rowCloses).toHaveCount(8);
+  await expect(rowCloses.first()).toHaveCSS("position", "absolute");
+  await expect(rowCloses.first()).toHaveCSS("opacity", "0");
+
+  // Hovering a row reveals its close.
+  await page.locator("#cell-list .di-lrow").first().hover();
+  await expect(rowCloses.first()).toHaveCSS("opacity", "1");
+});

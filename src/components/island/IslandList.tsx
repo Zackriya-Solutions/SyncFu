@@ -44,9 +44,21 @@ interface IslandListProps {
   /** Act on a row: fires its primary action, else dismisses it. Each row maps
    *  1:1 to its own id/waiter (A4), so resolution never crosses notifications. */
   readonly onRowAction: (row: IslandRow) => void;
+  /** Dismiss a single row by id (T15, the secondary per-row x). Resolves exactly
+   *  that row's waiter as Dismissed (exit 1), never crossing ids (A4). */
+  readonly onRowDismiss: (id: string) => void;
+  /** Clear every island notification (T15, the header "Clear all"). Wired to the
+   *  backend dismiss-all path so it empties even deduped/merged notifications. */
+  readonly onClearAll: () => void;
 }
 
-export function IslandList({ snapshot, onCollapse, onRowAction }: IslandListProps) {
+export function IslandList({
+  snapshot,
+  onCollapse,
+  onRowAction,
+  onRowDismiss,
+  onClearAll,
+}: IslandListProps) {
   const { rows, merged } = snapshot;
   const scrolls = rows.length > VISIBLE_ROWS;
   const countText =
@@ -60,6 +72,15 @@ export function IslandList({ snapshot, onCollapse, onRowAction }: IslandListProp
           <span className="di-list-count" data-testid="island-list-count">
             {countText}
           </span>
+          <button
+            type="button"
+            className="di-list-clear"
+            data-testid="island-list-clear"
+            aria-label="Clear all notifications"
+            onClick={onClearAll}
+          >
+            Clear all
+          </button>
           <button
             type="button"
             className="di-list-collapse"
@@ -105,6 +126,27 @@ export function IslandList({ snapshot, onCollapse, onRowAction }: IslandListProp
               onClick={() => onRowAction(row)}
             >
               {actionLabel(row)}
+            </button>
+            <button
+              type="button"
+              className="di-lrow-close"
+              data-testid="island-row-close"
+              data-id={row.id}
+              aria-label="Dismiss notification"
+              onClick={() => onRowDismiss(row.id)}
+            >
+              <svg
+                width="8"
+                height="8"
+                viewBox="0 0 10 10"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeWidth="2.5"
+              >
+                <line x1="2" y1="2" x2="8" y2="8" />
+                <line x1="8" y1="2" x2="2" y2="8" />
+              </svg>
             </button>
           </div>
         ))}

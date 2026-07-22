@@ -172,3 +172,63 @@ contract. Journey robustness note: the T11 assertions gate on `hasWaiter` before
 - F2: the app hardcodes port 9868 (no env override), so the full app cannot be spawned while a
   production instance runs. A `SYNCFU_PORT` env override (future, non-T11 change) would make the
   complete app spawnable in CI and worktrees.
+
+---
+
+## 8. T15 - dismissal affordances + single-instance guard
+
+### Dismissal affordances (frontend) - automated
+
+- [x] Expanded SINGLE card: a hover-visible circular close (`.di-close`, reuses the card's
+  `--s-close-*` tokens) resolves the existing `dismiss_notification` -> waiter Dismissed (exit 1)
+  path. Covered by `IslandActions.test.tsx` (CRITICAL no-action dismissable via the x; the click
+  dismisses WITHOUT toggling collapse) and `island-render.spec.ts` (present, opacity:0 at rest,
+  revealed on hover). It is `position:absolute`/`opacity:0` at rest, so every island-render baseline
+  is byte-identical.
+- [x] Model B list header: a persistent "Clear all" (`.di-list-clear`) beside the count invokes the
+  registered `dismiss_all` command (IslandOverlay `handleClearAll`). Chosen OVER a per-row loop
+  because dedupe means `rows` omits merged duplicates (`merged = count - rows.len()`); a loop would
+  leave them behind and re-promote the next survivor, so the list would not empty in one pass.
+  `dismiss_all` clears the manager atomically and resolves every waiter as Dismissed. Documented
+  tradeoff: it ALSO clears any top-right CARD notifications (acceptable for a deliberate bulk clear).
+  Covered by `IslandGroup.test.tsx` + `island-group.spec.ts`.
+- [x] List rows: a secondary per-row close (`.di-lrow-close`, hover-revealed at the right edge, the
+  action button slides left to make room) dismisses exactly that row's id (A4 per-id waiter identity).
+  Covered by `IslandGroup.test.tsx` ("dismisses EXACTLY that row's id") + `island-group.spec.ts`.
+- Ambient wings + compact pill carry NO close affordance BY DESIGN (glance surfaces; the collapsed
+  critical pill re-expands on click, which then exposes the card close).
+- Baseline note: only `island-group-list.png` (webkit + chromium) was regenerated - the intentional
+  "Clear all" header control. The `island-appearance` / `island-position` specs show the SAME
+  pre-existing worktree env-drift as before this change (verified failing on the base commit too);
+  see section 4 - regenerate those on a CI runner, never from a worktree.
+
+### Single-instance guard (Rust) - MANUAL
+
+`tauri-plugin-single-instance` is now registered FIRST in the builder chain (`src-tauri/src/lib.rs`,
+gated `#[cfg(desktop)]`). A second launch is killed by the plugin; its callback focuses/shows the
+existing instance's `main` window (`get_webview_window("main")` -> `unminimize` + `show` + `set_focus`).
+This closes the observed bug where a second instance ran half-alive beside the first with a dead HTTP
+bind on :9868.
+
+Not unit-testable (it needs two real OS processes and a live window server). Do NOT double-launch here
+- it would fight the user's running dev session. Verify by hand on a build machine with :9868 free:
+
+- [ ] Build the app (`pnpm tauri build`, or run the built `.app`). Launch it once - it starts,
+  binds :9868, shows the main window.
+- [ ] Launch the SAME built binary a SECOND time. Expected: the second process exits immediately
+  (killed by the plugin) and the FIRST instance's main window comes to the front (shown + focused;
+  unminimized if it was minimized). No second dock icon lingers; `lsof -iTCP:9868 -sTCP:LISTEN`
+  shows exactly ONE holder.
+- [ ] Confirm no "FATAL: HTTP server on :9868 failed to bind" line appears in the first instance's
+  log during the second launch (the guard prevents the duplicate-bind path entirely).
+
+### HTTP bind-failure loudness - behavior note
+
+The :9868 server is still spawned best-effort (no exit logic added, by design - the app remains a
+useful overlay host). On bind failure the message is now LOUD: `error!` at FATAL wording PLUS an
+`eprintln!` to stderr, stating that the CLI bridge is DOWN and `syncfu send` cannot reach this
+instance. With the single-instance guard, reaching this path now implies an EXTERNAL port conflict
+(some other process holds :9868), not a duplicate syncfu instance.
+
+- [ ] MANUAL (optional): hold :9868 with `nc -l 9868` (or another process), then launch syncfu.
+  Confirm the FATAL bind-failure line appears in the log and on stderr, and the overlay UI still runs.
