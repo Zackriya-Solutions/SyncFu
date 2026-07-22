@@ -152,6 +152,29 @@ human decision should branch on all three codes (see
   Non-notch Macs, Windows, and Linux always float. Float layout is unchanged from
   before the notch adaptation.
 
+## Display targeting (multi-monitor)
+
+The island follows the ACTIVE screen: on every show it targets the monitor under
+your cursor, exactly like the top-right card. The layout adapts per display:
+
+| Your `mode` setting | Cursor on the notched built-in | Cursor on a non-notch display |
+|---|---|---|
+| `notch` (default, auto) | under-notch model (wings, hover-reveal) | floating capsule, top-center |
+| `float` (explicit override) | floating capsule everywhere | floating capsule at your `position` |
+
+`position` (left / center / right / bottom-center) applies only with `mode: float`;
+the automatic notch-to-float fallback always anchors top-center.
+
+## Island window events (backend to webview)
+
+| Event | Payload | Purpose |
+|---|---|---|
+| `island:snapshot` | ranked Model B snapshot | the ONLY render data source (Rust-owned) |
+| `island:settings` | the 13 settings | live restyle without resend |
+| `island:geometry` | cutout `{widthLogical, heightLogical}` or `null` | notch vs float layout per current display |
+| `island:reveal` | boolean | hover-reveal state for the collapsed pill |
+| `island:hover` | boolean | cursor over the shape; pauses auto-dismiss like the card |
+
 ## Settings (13, app-wide)
 
 The island's geometry and appearance are **app-wide settings**, not

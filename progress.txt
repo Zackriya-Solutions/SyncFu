@@ -359,3 +359,13 @@ Worktrees preserved: t5b, t6, t10, t11 (earlier 13 removed on user instruction).
   follow-me on Retina), plus a systematic card-vs-island parity audit (hover-pause, fonts, sound,
   markdown, +anything found). T16 docs runs in parallel (T17 barred from doc files; doc-impact
   list returned instead).
+- T17 MERGED: island follows the cursor's monitor (per-display auto notch/float; float forces
+  everywhere; position honored only in explicit float). Retina monitor-picker fixed (logical
+  end-to-end - ALSO fixes the card's pre-existing follow bug). Hover pauses auto-dismiss
+  (island:hover event). Parity audit: fonts no-gap, countdown-bar no-gap (card never paused the
+  bar), sound never-played-for-either (reported), markdown plain-for-both + unused deps (reported),
+  group hover-pause + group fonts (reported minor). 158+32 Rust, 216 vitest green; playwright
+  deferred (user's live session owns 1420).
+- T16 MERGED: README/CHEATSHEET/skill files/docs/island.md/examples (3 of 4 run live). FLAG: the
+  user's INSTALLED CLI 0.3.0 predates --presentation - republish with the release (checklist).
+- Doc-impact deltas applied: docs/island.md gains display-targeting + window-events sections.
