@@ -17,7 +17,9 @@
 set -euo pipefail
 
 # Send the decision to the island and capture the clicked action id on stdout.
-# `|| true` keeps `set -e` from aborting on a non-zero exit; we read $? next.
+# `&& CODE=0 || CODE=$?` keeps `set -e` from aborting on a non-zero exit while
+# capturing the REAL exit code (a bare `|| true; CODE=$?` would always read 0,
+# the exit code of `true`).
 ACTION=$(syncfu send \
   --presentation island \
   -t "Deploy to production?" \
@@ -26,8 +28,7 @@ ACTION=$(syncfu send \
   -a "approve:Approve:primary" \
   -a "reject:Reject:danger" \
   --wait --wait-timeout 120 \
-  "Ship v2.3.0 to prod. 41 commits since the last release.") || true
-CODE=$?
+  "Ship v2.3.0 to prod. 41 commits since the last release.") && CODE=0 || CODE=$?
 
 case "$CODE" in
   0)
