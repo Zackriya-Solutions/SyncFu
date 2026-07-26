@@ -11,6 +11,17 @@ This document is the consolidated reference: the interaction model, all 13
 settings, the payload field, the capture matrix, dismissal, single-instance
 behavior, and troubleshooting. Runnable scripts live in `examples/`.
 
+<table>
+<tr>
+<td align="center"><img src="images/island/island-compact.png" width="300" alt="Collapsed ambient pill" /><br /><sub>Idle — compact ambient pill</sub></td>
+<td align="center"><img src="images/island/island-expanded-actions.png" width="380" alt="Expanded decision card" /><br /><sub>Expanded — a decision that blocks on <code>--wait</code></sub></td>
+</tr>
+<tr>
+<td align="center"><img src="images/island/island-compact-progress.png" width="300" alt="Collapsed pill with a mini progress ring" /><br /><sub>Live progress — mini-ring while collapsed</sub></td>
+<td align="center"><img src="images/island/island-group-list.png" width="360" alt="Expanded ranked notification list" /><br /><sub>Multiple — spotlight + ranked list</sub></td>
+</tr>
+</table>
+
 ## When to use the island vs the card
 
 - Reach for the **island** for glanceable, ambient status on long-running work

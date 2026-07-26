@@ -63,8 +63,16 @@ syncfu send -t "Loop complete" -p high -i circle-check \
 | 🖥️ | **Multi-monitor** | Notifications follow your mouse cursor across displays |
 | 🔗 | **Webhook callbacks** | Action buttons POST to your `callbackUrl` for closed-loop automation |
 | 📊 | **Live progress bars** | Update in-flight notifications with progress, body changes, new actions |
+| 🏝️ | **[Dynamic Island](#dynamic-island)** | Notch-hugging capsule that morphs pill ↔ card — ambient, hover-reveal, hides from screen capture |
 | 🧪 | **181 tests** | 72 frontend + 70 Rust server + 29 CLI unit + 10 CLI integration |
 | ⚡ | **Zero config** | No config files — everything is API-driven per notification |
+
+<br />
+
+<p align="center">
+  <img src="docs/images/island/island-expanded-actions.png" width="460" alt="A Dynamic Island decision: 'Ship to production?' with Ship it / Cancel buttons" /><br />
+  <sub><strong>Dynamic Island</strong> — an agent parks a decision on the notch and blocks until you answer. <a href="#dynamic-island">See the full showcase ↓</a></sub>
+</p>
 
 <br />
 
@@ -627,6 +635,13 @@ The **Dynamic Island** is a second notification presentation: a pure-black capsu
 
 It suits glanceable, ambient status for long agent tasks (timers, progress, approvals), and it can be hidden from screen recording and screen sharing so private notifications do not leak on a live capture (see the [support matrix](#screen-capture-support-matrix) for the exact per-OS guarantee). For the full reference (every setting, the payload field, troubleshooting), see [`docs/island.md`](docs/island.md).
 
+<table>
+<tr>
+<td align="center" width="50%"><img src="docs/images/island/island-compact.png" width="320" alt="Collapsed ambient pill" /><br /><sub>Idle — a compact ambient pill</sub></td>
+<td align="center" width="50%"><img src="docs/images/island/island-expanded-basic.png" width="420" alt="Expanded island card" /><br /><sub>Expands to a full card on arrival or click</sub></td>
+</tr>
+</table>
+
 ### Interaction model
 
 In notch mode the island moves through four states, where the count is the number of active island notifications:
@@ -649,6 +664,29 @@ In notch mode the island moves through four states, where the count is the numbe
 
 A fresh notification arrives EXPANDED, holds ~2.6s, then auto-collapses to the pill. A **decision** (a notification carrying actions, i.e. a pending `--wait`) and any **critical** notification stay expanded and never auto-collapse. The window is a click-through envelope: clicks pass to the apps underneath except over the drawn pill or card. Float / non-notch mode skips the ambient-wings and hover-reveal steps - the pill is always visible and expands on click.
 
+### Live progress
+
+Update one notification in place as a task advances - the island never stacks a new one per step. While collapsed the right ambient wing carries a mini progress ring; expanded, it shows a bar or a ring.
+
+<table>
+<tr>
+<td align="center"><img src="docs/images/island/island-compact-progress.png" width="300" alt="Collapsed pill with a mini progress ring" /><br /><sub>Collapsed — live mini-ring</sub></td>
+<td align="center"><img src="docs/images/island/island-expanded-progress-bar.png" width="380" alt="Expanded card with a progress bar" /><br /><sub>Expanded — progress bar</sub></td>
+<td align="center"><img src="docs/images/island/island-expanded-progress-ring.png" width="380" alt="Expanded card with a progress ring" /><br /><sub><code>--progress-style ring</code></sub></td>
+</tr>
+</table>
+
+### Decisions and critical alerts
+
+A decision (action buttons, i.e. a pending `--wait`) and any critical notification arrive expanded and stay that way until you resolve them.
+
+<table>
+<tr>
+<td align="center"><img src="docs/images/island/island-expanded-actions.png" width="400" alt="Decision card with primary and danger action buttons" /><br /><sub>Decision — primary / danger actions</sub></td>
+<td align="center"><img src="docs/images/island/island-expanded-critical.png" width="400" alt="Critical alert card" /><br /><sub>Critical — never auto-dismisses, close via hover x</sub></td>
+</tr>
+</table>
+
 ### Dismissal
 
 - **Expanded card x**: hover the expanded card to reveal a close x. This is also the only way to dismiss a **critical no-action** notification (it never auto-dismisses and has no action buttons).
@@ -666,6 +704,14 @@ syncfu send --presentation island -t "Deploying" "Rolling out v2.3"
 ```
 
 Everything the card supports works on the island: actions, priority timeouts, progress, grouping, and all 27 style overrides. Geometry and position are not part of the payload (they are app settings, see below); the payload only carries the `style` overrides.
+
+<table>
+<tr>
+<td align="center"><img src="docs/images/island/island-expanded-styled-27.png" width="360" alt="Island card with custom colors and font" /><br /><sub>27 style overrides + Google Fonts</sub></td>
+<td align="center"><img src="docs/images/island/island-expanded-rich-body.png" width="360" alt="Island card with a longer rich body" /><br /><sub>Rich body content</sub></td>
+<td align="center"><img src="docs/images/island/island-expanded-tall.png" width="360" alt="Tall island card that grew to fit its content" /><br /><sub>Grows to fit — content never spills</sub></td>
+</tr>
+</table>
 
 ```bash
 syncfu send --presentation island -t "Approve?" \
@@ -693,9 +739,39 @@ A `--wait` decision on the island arrives expanded and stays expanded until you 
 - **Notch mode** (default): the capsule hugs the top-center notch. The compact pill is sized and positioned from the real measured cutout - its width matches the physical cutout so it reads as an extension of the notch, and the island is offset down by the cutout height so content sits below the notch, never behind it. The pill stays pure black even in light appearance so it blends with the physical notch. `position` is ignored in notch mode.
 - **Float mode**: a fully-rounded floating capsule you can place `left`, `center`, `right`, or `bottom-center` (`bottom-center` is float-only and expands upward). Non-notch Macs, Windows, and Linux always float; float layout is unchanged by the notch adaptation.
 
+Float placement (`mode: float`) anchors the capsule to any edge; `bottom-center` expands upward.
+
+<table>
+<tr>
+<td align="center"><img src="docs/images/island/position-left.png" width="300" alt="Float island anchored left" /><br /><sub>left</sub></td>
+<td align="center"><img src="docs/images/island/position-center.png" width="300" alt="Float island anchored center" /><br /><sub>center</sub></td>
+</tr>
+<tr>
+<td align="center"><img src="docs/images/island/position-right.png" width="300" alt="Float island anchored right" /><br /><sub>right</sub></td>
+<td align="center"><img src="docs/images/island/position-bottom-center.png" width="300" alt="Float island anchored bottom-center" /><br /><sub>bottom-center (expands upward)</sub></td>
+</tr>
+</table>
+
+The `appearance` setting is `dark`, `light`, or `auto` (follows the OS). In notch mode the compact pill stays pure black regardless, so it always blends with the physical cutout.
+
+<table>
+<tr>
+<td align="center"><img src="docs/images/island/appearance-dark-expanded.png" width="380" alt="Island in dark appearance" /><br /><sub>Dark appearance</sub></td>
+<td align="center"><img src="docs/images/island/appearance-light-expanded.png" width="380" alt="Island in light appearance" /><br /><sub>Light appearance</sub></td>
+</tr>
+</table>
+
 ### Multiple notifications
 
 When more than one island notification is active, the compact pill shows the highest-priority **spotlight** item plus an `xN` count badge (capped at `9+`). Expanding reveals a priority-ranked, deduped list (critical first) capped at 6 rows before it scrolls. Auto-dismiss is paused while the list is open. Notifications with a pending `--wait` are exempt from de-duplication so each keeps its own exit code.
+
+<table>
+<tr>
+<td align="center"><img src="docs/images/island/island-group-compact-2.png" width="300" alt="Compact pill with a spotlight item and an x2 badge" /><br /><sub>Spotlight + <code>x2</code> badge</sub></td>
+<td align="center"><img src="docs/images/island/island-group-compact-10.png" width="300" alt="Compact pill with a 9+ badge" /><br /><sub>Badge caps at <code>9+</code></sub></td>
+<td align="center"><img src="docs/images/island/island-group-list.png" width="360" alt="Expanded ranked list of notifications with per-row actions and Clear all" /><br /><sub>Expanded ranked list — per-row actions, Clear all</sub></td>
+</tr>
+</table>
 
 ### Single instance
 
