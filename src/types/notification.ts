@@ -2,6 +2,9 @@ export type Priority = "low" | "normal" | "high" | "critical";
 export type ActionStyle = "primary" | "secondary" | "danger";
 export type ProgressStyle = "bar" | "ring";
 export type DismissReason = "timeout" | "user" | "replaced";
+/** How a notification is presented. `card` is the existing top-right glass card;
+ *  `island` is the dynamic-island capsule (renders as a card until T4a). */
+export type Presentation = "card" | "island";
 
 export interface Action {
   readonly id: string;
@@ -63,6 +66,7 @@ export interface NotificationPayload {
   readonly icon?: string;
   readonly font?: string;
   readonly priority: Priority;
+  readonly presentation?: Presentation;
   readonly timeout: Timeout | "never" | "default";
   readonly actions: readonly Action[];
   readonly progress?: ProgressInfo;
@@ -88,4 +92,4 @@ export interface HistoryEntry {
   readonly callbackResult?: string;
 }
 
-export type WindowLabel = "overlay" | "main";
+export type WindowLabel = "overlay" | "main" | "island";

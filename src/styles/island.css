@@ -1,0 +1,1062 @@
+/* Dynamic Island styles (T4a static + T4b morph). Ported from the approved
+ * mockup rev 8 (.di-compact / .di-expanded anatomy). The capsule SHAPE is an
+ * inline SVG (Island.tsx) rendered behind this content; the morph controller
+ * (islandMorph.ts) animates that SVG + the box geometry and republishes the
+ * `--di-wall` inset every frame. These rules lay out and color the content and
+ * derive its wall inset from `--di-wall`, so the padding tracks the morph with
+ * ZERO per-frame JS on the content node. The 27 `--s-*` overrides resolve
+ * through the SAME buildStyleVars map as the card (invariant c).
+ *
+ * Fixed transparent envelope; the island is centered at the top of its window.
+ * The OS frame NEVER resizes (D3) - only the shape + content morph. */
+
+.island-root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  background: transparent;
+  pointer-events: none;
+}
+
+/* ---- Float-mode positions (T8, D4) --------------------------------------- *
+ * The Rust window anchor (island.rs) moves the transparent frame to the target
+ * monitor edge; these rules place the capsule against the MATCHING edge inside
+ * the frame so the two agree. Notch mode never sets a non-center position
+ * (IslandOverlay forces center - invariant e). The 12px edge gap is provided by
+ * the window anchor for left/right/bottom; float top positions add a small top
+ * inset so the capsule floats down instead of hugging flush like the notch. */
+.island-root[data-position="left"] {
+  justify-content: flex-start;
+}
+.island-root[data-position="right"] {
+  justify-content: flex-end;
+}
+.island-root[data-mode="float"][data-position="left"],
+.island-root[data-mode="float"][data-position="right"],
+.island-root[data-mode="float"][data-position="center"] {
+  padding-top: 12px;
+}
+
+/* Bottom-center: anchor the capsule to the BOTTOM edge and let it grow UPWARD
+ * (volume-OSD behavior - the bottom stays put mid-morph, height extends up).
+ * `align-items: flex-end` alone achieves this: as the flex item's height grows it
+ * expands away from the bottom cross-axis edge, so NO islandMorph anchor logic is
+ * needed. The hover lift re-anchors to the bottom so it never pushes down. */
+.island-root[data-position="bottom-center"] {
+  align-items: flex-end;
+}
+.island-root[data-position="bottom-center"] .di-island {
+  cursor: pointer; /* click toggles compact<->expanded (mockup behavior) */
+  transform-origin: bottom center;
+}
+
+/* The visible capsule. Width/height + `--di-wall` are written imperatively by
+ * the morph controller (islandMorph.ts) every frame - never in JSX, so a React
+ * re-render can never clobber a live morph. `--di-wall` defaults to the compact
+ * shoulder inset so the content padding is correct on the very first paint. */
+.di-island {
+  --di-wall: 6px;
+  position: relative;
+  pointer-events: auto;
+  transform-origin: top center;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  /* Native-weight shadow: the mockup's 0.55 halo read as a dark wash on bright
+   wallpapers (hardware iteration 6). Tighter + lighter keeps depth on dark. */
+  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.3));
+}
+
+/* Hover lift (FR-6): 1.028 scale, top-anchored, 150ms after a 150ms open delay
+ * (mirrors HOVER in src/lib/spring.ts). Pure CSS transform/opacity so an idle
+ * hover costs no rAF frames (R-PERF). Suppressed under reduced motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .di-island {
+    transition: transform 150ms cubic-bezier(0.22, 1, 0.36, 1) 150ms;
+  }
+  .di-island:hover {
+    transform: scale(1.028);
+  }
+}
+
+/* Inline SVG notch shape, stretched to the capsule box behind the content. */
+.di-shape {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+/* Content sits above the shape in normal flow, so its natural height drives the
+ * expanded capsule height (the controller measures it). Horizontal padding is
+ * the wall inset (R-WALL): max(base, --di-wall + margin), matching wallPadding()
+ * in notchPath.ts exactly (compact base 14 + margin 4; card base 16 + margin 5).
+ * Deriving it from the morph-driven `--di-wall` keeps text/icons off the concave
+ * shoulder in EVERY frame with no per-frame JS on this node. */
+.di-content {
+  position: relative;
+  z-index: 1;
+  /* Cover-the-notch (option A): inset the content below the physical cutout so the
+   * shape's top band can cover the notch while text/icons stay clear of it. The var
+   * is the cutout height, published on the `.di-reveal` wrapper in notch mode and
+   * inherited here; unset (float / non-notch) resolves to 0, so those layouts are
+   * byte-identical. box-sizing:border-box (globals) keeps this inside the compact
+   * `height:100%` box, and it is included in the expanded content measure. */
+  padding-top: var(--di-notch-h, 0px);
+}
+
+/* Compact: fixed-height pill, content vertically centered. */
+.di-island[data-state="compact"] .di-content {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  padding-left: max(14px, calc(var(--di-wall) + 4px));
+  padding-right: max(14px, calc(var(--di-wall) + 4px));
+}
+
+.di-island[data-state="expanded"] .di-content {
+  padding-left: max(16px, calc(var(--di-wall) + 5px));
+  padding-right: max(16px, calc(var(--di-wall) + 5px));
+}
+
+/* ---- Cover-the-notch pill + hover-reveal (T13; option A cover) ------------ *
+ * On a real notched display the island COVERS the physical cutout: its concave-
+ * shouldered top sits flush at the screen edge (y = 0), over the notch, so the black
+ * shape absorbs the hardware notch and reads as one shape - never a second notch
+ * below it. The shape is grown taller by the cutout height (`setNotchCap` in
+ * islandMorph for compact; the expanded content measure via `--di-notch-h` top
+ * padding), and the content is inset below the cutout by the same `.di-content`
+ * padding. The `.di-reveal` wrapper therefore rests at y = 0 (no down-translate);
+ * it only slides the collapsed pill up out of sight (concealed) until the physical
+ * notch is hovered (`data-revealed`, driven by the backend `island:reveal` signal).
+ * `--di-notch-h` (the cutout height) is still published on the wrapper - it now
+ * feeds the content padding, not a translate. Without `data-notch` (float /
+ * non-notch) the wrapper is a layout-neutral passthrough and the pill is always
+ * visible. */
+.di-reveal[data-notch="true"] {
+  will-change: transform, opacity;
+}
+.di-reveal[data-notch="true"][data-revealed="true"] {
+  /* Revealed resting position: flush at the screen top, covering the notch. */
+  transform: translateY(0);
+  opacity: 1;
+}
+.di-reveal[data-notch="true"][data-revealed="false"] {
+  /* Concealed: tuck the pill up behind the opaque cutout (its own height) and fade. */
+  transform: translateY(-100%);
+  opacity: 0;
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .di-reveal[data-notch="true"] {
+    transition:
+      transform 240ms cubic-bezier(0.22, 1, 0.36, 1),
+      opacity 200ms ease;
+  }
+}
+
+/* ---- Ambient wings indicator (T14) --------------------------------------- *
+ * While the single island is COLLAPSED and the notch is NOT hovered, the pill is
+ * concealed and this minimal indicator shows in its place (Island.tsx renders it
+ * as a sibling of the pill wrapper). It is a static black shape sized like T12's
+ * wing pill - the cutout width plus one wing on each side (`--di-wing`), exactly
+ * the cutout height, flush at the screen top - so slim black extensions peek out
+ * beside the physical (opaque) notch. Its center strip sits BEHIND the real cutout
+ * and holds nothing; the only content is a small priority-accent hint in the RIGHT
+ * wing (a dot, or a tiny progress ring). It is absolutely positioned so it overlays
+ * the notch independently of the pill's slide transform, and it CROSS-FADES with
+ * the pill on the same CSS transitions (the wings fade as the pill slides down),
+ * so revealing reads as the wings growing into the pill - no new animation system.
+ * Purely decorative: pointer-events are off (the backend cursor tracker owns the
+ * hover detection, its region spans these wings). */
+.di-ambient {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #000000;
+  border-radius: 0 0 11px 11px;
+  opacity: 0;
+  pointer-events: none;
+  filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.25));
+}
+.di-ambient[data-visible="true"] {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .di-ambient {
+    transition: opacity 200ms ease;
+  }
+}
+
+/* The accent hint pinned to the horizontal center of the RIGHT wing (half a wing
+ * in from the shape's right edge), vertically centered. Color is the PRIORITY
+ * accent (`--acc`, resolved from `data-priority` below), a glanceable severity cue. */
+.di-ambient-dot {
+  position: absolute;
+  top: 50%;
+  right: calc(var(--di-wing, 24px) / 2);
+  transform: translate(50%, -50%);
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--acc);
+  box-shadow: 0 0 8px -1px var(--acc);
+}
+.di-ambient-ring {
+  position: absolute;
+  top: 50%;
+  right: calc(var(--di-wing, 24px) / 2);
+  transform: translate(50%, -50%);
+  width: 15px;
+  height: 15px;
+}
+.di-ambient-ring circle {
+  fill: none;
+  stroke-width: 3;
+}
+.di-ambient-track {
+  stroke: rgba(255, 255, 255, 0.2);
+}
+.di-ambient-fill {
+  stroke: var(--acc);
+  stroke-linecap: round;
+  transform: rotate(-90deg);
+  transform-origin: 50% 50%;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .di-ambient-fill {
+    transition: stroke-dashoffset 250ms ease;
+  }
+}
+
+/* ---- Compact pill -------------------------------------------------------- */
+.di-compact {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+}
+
+/* Accent resolution: a per-notification `accentColor` override wins; failing
+ * that the persistent island `accent` setting (--di-accent, published by the
+ * morph controller on settings change, T7b); failing that the default blue. */
+.di-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--s-accent-color, var(--di-accent, #4a9eff));
+  box-shadow: 0 0 9px var(--s-accent-color, var(--di-accent, #4a9eff));
+  flex: none;
+}
+
+.di-sender {
+  font-family: ui-monospace, "SF Mono", "Menlo", monospace;
+  font-size: 11.5px;
+  color: var(--s-sender-color, #f2f4f8);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Trailing live-activity slot: pushed to the right, filled in T5b. */
+.di-trailing {
+  margin-left: auto;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* Compact live-activity (T5b): a mini progress ring + percent. The compact pill
+ * is always a ring (no room for a bar). The fill arc is a declarative
+ * stroke-dashoffset (React writes it per re-render; the CSS transition eases it),
+ * so a progress update costs NO rAF morph frame (R-PERF). The accent honors the
+ * shared `--s-progress-color` / accent overrides (invariant c). */
+.di-liveactivity {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.di-mini-ring {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+.di-mini-ring circle {
+  fill: none;
+  stroke-width: 3;
+}
+
+.di-mini-track {
+  stroke: var(--s-progress-track-color, rgba(255, 255, 255, 0.15));
+}
+
+.di-mini-fill {
+  stroke: var(--s-progress-color, var(--s-accent-color, var(--di-accent, #4a9eff)));
+  stroke-linecap: round;
+  transform: rotate(-90deg);
+  transform-origin: 50% 50%;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .di-mini-fill {
+    transition: stroke-dashoffset 250ms ease;
+  }
+}
+
+.di-mini-pct {
+  font-family: ui-monospace, "SF Mono", "Menlo", monospace;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--s-accent-color, var(--di-accent, #4a9eff));
+}
+
+/* ---- Expanded card ------------------------------------------------------- */
+.di-expanded {
+  position: relative;
+  width: 100%;
+  padding: 11px 0 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+/* Hover-visible close (T15), mirroring the card's `.notification-dismiss` circular
+   anatomy and reusing the SAME `--s-close-*` overrides (published on `.di-island`).
+   position:absolute keeps it out of flow so the at-rest render is byte-identical
+   (opacity:0 => zero pixels => existing island-render baselines unchanged). It is
+   the primary dismissal path for CRITICAL no-action notifications, which otherwise
+   never leave the island. Reduced-motion drops the fade (still shows on hover). */
+.di-close {
+  /* No clickable footprint while invisible (T15 review): hover restores it. */
+  pointer-events: none;
+  position: absolute;
+  top: 6px;
+  right: 2px;
+  z-index: 1;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  background: var(--s-close-bg, rgba(255, 255, 255, 0.08));
+  border: 1px solid var(--s-close-border-color, rgba(255, 255, 255, 0.14));
+  color: var(--s-close-color, #dfe2e8);
+  opacity: 0;
+  transition: opacity 150ms ease, background 150ms ease;
+}
+.di-island:hover .di-close,
+.di-close:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.di-close:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+.di-light-content .di-close {
+  background: var(--s-close-bg, rgba(0, 0, 0, 0.06));
+  border-color: var(--s-close-border-color, rgba(0, 0, 0, 0.12));
+  color: var(--s-close-color, rgba(0, 0, 0, 0.6));
+}
+@media (prefers-reduced-motion: reduce) {
+  .di-close,
+  .di-ehead .notification-time {
+    transition: none;
+  }
+}
+
+.di-erow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.di-icon {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  background: var(--s-icon-bg, rgba(74, 158, 255, 0.12));
+  color: var(--s-icon-color, #4a9eff);
+  border: 0.5px solid var(--s-icon-border-color, rgba(74, 158, 255, 0.2));
+}
+
+.di-etext {
+  min-width: 0;
+  flex: 1;
+}
+
+.di-ehead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.di-ehead .di-sender {
+  color: var(--s-sender-color, #9aa4b4);
+  font-size: 10.5px;
+}
+
+.di-ehead .notification-time {
+  font-family: ui-monospace, "SF Mono", "Menlo", monospace;
+  font-size: 10.5px;
+  color: var(--s-time-color, #9aa4b4);
+  flex: none;
+  /* The close button shares this top-right corner but only appears on hover. Rather
+   * than reserve a permanent gutter (which would strand the timestamp far off the
+   * right edge, since the close sits inside the content padding), the transient
+   * timestamp yields to the close on hover - no overlap, clean when not hovering. */
+  transition: opacity 150ms ease;
+}
+.di-island:hover .di-ehead .notification-time,
+.di-close:focus-visible + .di-erow .notification-time {
+  opacity: 0;
+}
+
+.di-title {
+  color: var(--s-title-color, #f4f6fa);
+  font-size: var(--s-title-font-size, 13px);
+  font-weight: 600;
+  line-height: 1.15;
+  margin-top: 2px;
+}
+
+.di-msg {
+  color: var(--s-body-color, #c7cedd);
+  font-size: var(--s-body-font-size, 12px);
+  line-height: 1.4;
+  margin-top: 4px;
+}
+
+/* ---- Light appearance: dark ink ramp on the light surface (T8, D4) -------- *
+ * Applied by Island.tsx (`.di-light-content`) on the SAME surfaces the morph
+ * controller lightens: the expanded card and the float compact pill. The notch
+ * compact pill never gets this class (its fill stays #000000 - invariant d).
+ * Ink ramp pulled from the mockup's approved light stage (.t-light block):
+ *   surface  #f4f4f6 (float pill #e9e9ee)  |  accent #0a84ff
+ *   ink      rgba(0,0,0,.90)  title
+ *   ink-mid  rgba(0,0,0,.62)  compact sender / body
+ *   ink-dim  rgba(0,0,0,.42)  expanded head sender / time
+ *   hairline rgba(0,0,0,.10)  icon border
+ * These win over the `--s-*` defaults by specificity, which is the intended
+ * re-skin: light appearance overrides the per-notification palette. */
+.di-light-content .di-sender {
+  color: rgba(0, 0, 0, 0.62);
+}
+.di-light-content .di-title {
+  color: rgba(0, 0, 0, 0.9);
+}
+.di-light-content .di-msg {
+  color: rgba(0, 0, 0, 0.62);
+}
+.di-light-content .di-ehead .di-sender,
+.di-light-content .di-ehead .notification-time {
+  color: rgba(0, 0, 0, 0.42);
+}
+.di-light-content .di-icon {
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+/* ---- Actions (T5a) ------------------------------------------------------- */
+/* Ported from mockup rev 8 (.di-actions2 / .di-btn2). Primary maps to `accent`,
+ * danger to `danger`; secondary is the plain button. Per-action bg/color/border
+ * overrides arrive as inline styles (shared buildActionStyle, card parity). */
+.di-actions2 {
+  display: flex;
+  gap: 7px;
+  margin-top: 2px;
+}
+
+.di-btn2 {
+  flex: 1;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 550;
+  padding: 6px 0;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  color: var(--s-btn2-color, #e8ecf2);
+  background: var(--s-btn2-bg, rgba(255, 255, 255, 0.08));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+
+.di-btn2.accent {
+  background: var(--s-btn-bg, var(--s-accent-color, #4a9eff));
+  color: var(--s-btn-color, #06121f);
+}
+
+.di-btn2.danger {
+  background: var(--s-danger-bg, #ff3b30);
+  color: var(--s-danger-color, #fff);
+}
+
+/* ---- Progress: bar + ring (T5b) ------------------------------------------ */
+/* Ported from the mockup's `.ex-progress` (bar) and `.ring-wrap` (ring). Colors
+ * honor the shared `--s-progress-*` overrides so the island matches the card's
+ * palette (invariant c). Fills are declarative (width / stroke-dashoffset), eased
+ * by CSS only under no-preference so settled snapshots are deterministic and a
+ * value change never schedules an rAF morph frame (R-PERF). */
+.di-progress {
+  margin-top: 2px;
+}
+
+.di-pbar {
+  height: 4px;
+  border-radius: 3px;
+  background: var(--s-progress-track-color, rgba(255, 255, 255, 0.09));
+  overflow: hidden;
+}
+
+.di-pbar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--s-progress-color, var(--s-accent-color, var(--di-accent, #4a9eff)));
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .di-pbar-fill {
+    transition: width 250ms ease;
+  }
+}
+
+.di-plabel {
+  display: flex;
+  justify-content: space-between;
+  font-family: ui-monospace, "SF Mono", "Menlo", monospace;
+  font-size: 10.5px;
+  color: var(--s-time-color, #9aa4b4);
+  margin-top: 6px;
+}
+
+.di-ring-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 2px;
+}
+
+.di-ring {
+  width: 40px;
+  height: 40px;
+  flex: none;
+}
+
+.di-ring circle {
+  fill: none;
+  stroke-width: 4;
+}
+
+.di-ring-track {
+  stroke: var(--s-progress-track-color, rgba(255, 255, 255, 0.1));
+}
+
+.di-ring-fill {
+  stroke: var(--s-progress-color, var(--s-accent-color, var(--di-accent, #4a9eff)));
+  stroke-linecap: round;
+  transform: rotate(-90deg);
+  transform-origin: 50% 50%;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .di-ring-fill {
+    transition: stroke-dashoffset 250ms ease;
+  }
+}
+
+.di-ring-pct {
+  font-family: ui-monospace, "SF Mono", "Menlo", monospace;
+  font-size: 13px;
+  color: var(--s-title-color, #f4f6fa);
+}
+
+.di-ring-label {
+  color: var(--s-body-color, #c7cedd);
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.di-light-content .di-plabel {
+  color: rgba(0, 0, 0, 0.42);
+}
+.di-light-content .di-ring-pct {
+  color: rgba(0, 0, 0, 0.9);
+}
+/* Light surfaces: the white-translucent progress tracks vanish on a near-white
+ * card - swap the unfilled track to dark-translucent so the remaining arc/bar
+ * stays visible (T5b review F2). */
+.di-light-content .di-pbar {
+  background: rgba(0, 0, 0, 0.12);
+}
+.di-light-content .di-mini-track,
+.di-light-content .di-ring-track {
+  stroke: rgba(0, 0, 0, 0.12);
+}
+.di-light-content .di-ring-label {
+  color: rgba(0, 0, 0, 0.62);
+}
+
+/* ---- Auto-dismiss countdown (T5a) ---------------------------------------- */
+/* Bar reflects the priority timeout. It ANIMATES only when the notification will
+ * actually auto-dismiss (`.running`); a decision shows it full and paused
+ * (auto-dismiss paused while awaiting an answer). Reduced motion never animates
+ * it, so visual snapshots are deterministic (bar full). */
+.di-countdown {
+  margin-top: 6px;
+  height: 2px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.di-countdown-fill {
+  display: block;
+  height: 100%;
+  width: 100%;
+  transform-origin: left;
+  background: var(--s-countdown-color, var(--s-accent-color, #4a9eff));
+  opacity: 0.6;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .di-countdown-fill.running {
+    animation: di-countdown-shrink var(--countdown-duration) linear forwards;
+  }
+}
+
+@keyframes di-countdown-shrink {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+/* ============================================================================
+   Model B overflow (T6): compact spotlight + xN badge, expanded ranked list.
+   Ported from the approved mockup rev 8 (.cmp / .lst / .lrow anatomy). Rank,
+   dedupe, count and badge width are Rust-owned (snapshot); these rules only lay
+   out and color what the snapshot hands over.
+   ========================================================================== */
+
+/* Priority accent for grouped rows + spotlight (mockup PRIO hexes) AND the T14
+   ambient wings hint. A per-element accent is derived purely from `data-priority`,
+   so no JS color map is needed. */
+.di-lrow,
+.di-spot,
+.di-ambient {
+  --acc: var(--di-accent, #4a9eff);
+}
+.di-lrow[data-priority="low"],
+.di-spot[data-priority="low"],
+.di-ambient[data-priority="low"] {
+  --acc: #2ed573;
+}
+.di-lrow[data-priority="normal"],
+.di-spot[data-priority="normal"],
+.di-ambient[data-priority="normal"] {
+  --acc: #4a9eff;
+}
+.di-lrow[data-priority="high"],
+.di-spot[data-priority="high"],
+.di-ambient[data-priority="high"] {
+  --acc: #ffa502;
+}
+.di-lrow[data-priority="critical"],
+.di-spot[data-priority="critical"],
+.di-ambient[data-priority="critical"] {
+  --acc: #ff3b30;
+}
+
+/* ---- Compact spotlight (count > 1) --------------------------------------- */
+.di-spot {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+.di-spot-ava {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--acc);
+}
+.di-spot-txt {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+  line-height: 1.15;
+}
+.di-spot-txt b {
+  font-size: 12px;
+  font-weight: 640;
+  letter-spacing: -0.01em;
+  color: #f2f4f8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.di-spot-txt i {
+  font-size: 10.5px;
+  font-style: normal;
+  color: rgba(255, 255, 255, 0.6);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.di-light-content .di-spot-txt b {
+  color: rgba(0, 0, 0, 0.9);
+}
+.di-light-content .di-spot-txt i {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+/* The xN badge. Its WIDTH is Rust-owned (26 + 8*(digits-1), caps "9+") and set
+   inline from the snapshot; height/shape/color live here. */
+.di-badge-count {
+  flex: none;
+  height: 20px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-family: ui-monospace, "SF Mono", "Menlo", monospace;
+  font-size: 11px;
+  font-weight: 700;
+  color: #0a0a0a;
+  background: var(--acc);
+  box-shadow: 0 0 12px -2px var(--acc);
+}
+
+/* ---- Expanded ranked list ------------------------------------------------ */
+.di-list {
+  width: 100%;
+  padding: 10px 0 9px;
+}
+.di-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 2px 9px;
+}
+.di-list-title {
+  font-size: 12.5px;
+  font-weight: 640;
+  color: #eef0f4;
+}
+.di-light-content .di-list-title {
+  color: rgba(0, 0, 0, 0.9);
+}
+.di-list-head-r {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.di-list-count {
+  font-family: ui-monospace, "SF Mono", "Menlo", monospace;
+  font-size: 10px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.1);
+  padding: 3px 7px;
+  border-radius: 999px;
+  color: #cfd3db;
+}
+/* "Clear all" (T15): a persistent text button beside the count -> dismiss-all.
+   Text-only so it reads as secondary to the count/collapse chrome. */
+.di-list-clear {
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 6px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: #9aa4b4;
+  cursor: pointer;
+}
+.di-list-clear:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #eef0f4;
+}
+.di-light-content .di-list-clear {
+  color: rgba(0, 0, 0, 0.5);
+}
+.di-light-content .di-list-clear:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: rgba(0, 0, 0, 0.85);
+}
+.di-list-collapse {
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  color: #dfe2e8;
+  font-size: 13px;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  line-height: 1;
+}
+.di-list-collapse:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Cap + scroll containment (D5 / T4b review): the body caps its OWN height so the
+   whole island stays under the 560px ceiling, and scrolls past the cap - it does
+   NOT rely on the morph height cap (bypassed by content auto-height at rest). */
+.di-list-body {
+  max-height: 300px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+/* Bottom fade when the list overflows the 6-row cap: the partial last row reads
+   as a scroll affordance, not a hard mid-row cut. */
+.di-list-body.scrolls {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    #000 calc(100% - 30px),
+    transparent 100%
+  );
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 30px), transparent 100%);
+}
+.di-list-spacer {
+  height: 18px;
+  flex: none;
+}
+.di-list-body::-webkit-scrollbar {
+  width: 6px;
+}
+.di-list-body::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 3px;
+}
+
+.di-lrow {
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  animation: di-row-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.di-lrow + .di-lrow {
+  margin-top: 2px;
+}
+/* The horizontal header row (dot/ava/txt + primary action + close). Split from
+   `.di-lrow` (now a column) so the inline expansion can grow BELOW it (T18); the
+   per-row close stays positioned against this header, not the grown row. */
+.di-lrow-main {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border-radius: 12px;
+}
+.di-lrow-main:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+/* Row body: the click target that toggles the inline expansion (T18). A button
+   for expandable rows (aria-expanded), a plain span otherwise - reset to inherit
+   so it reads as row content, never as chrome. Holds dot/ava/txt in the same flow
+   the header used before the split, so unexpanded rows are visually unchanged. */
+.di-lrow-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+span.di-lrow-body {
+  cursor: default;
+}
+@media (prefers-reduced-motion: reduce) {
+  .di-lrow {
+    animation: none;
+  }
+}
+@keyframes di-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.di-lrow-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--acc);
+  flex: none;
+  box-shadow: 0 0 8px -1px var(--acc);
+}
+.di-lrow-ava {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  color: var(--acc);
+}
+.di-lrow-txt {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.25;
+  display: flex;
+  flex-direction: column;
+}
+.di-lrow-txt b {
+  font-size: 12px;
+  font-weight: 580;
+  color: #eef0f4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.di-lrow-txt span {
+  font-family: ui-monospace, "SF Mono", "Menlo", monospace;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.5);
+  text-transform: capitalize;
+}
+.di-light-content .di-lrow-txt b {
+  color: rgba(0, 0, 0, 0.9);
+}
+.di-light-content .di-lrow-txt span {
+  color: rgba(0, 0, 0, 0.5);
+}
+.di-lrow-act {
+  flex: none;
+  border: none;
+  border-radius: 9px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font: 640 12px/1 inherit;
+  color: #0a0a0a;
+  background: var(--acc);
+  box-shadow: 0 2px 12px -3px var(--acc);
+  transition: transform 150ms ease;
+}
+
+/* Per-row dismiss (T15): a small hover-visible secondary x at the row's right
+   edge. absolute + opacity:0 at rest keeps the list layout (and the
+   island-group-list baseline) unchanged; on row hover the primary action button
+   slides left (transform, no reflow) to reveal it. Resolves exactly this row's
+   waiter (A4). Reduced-motion drops both the fade and the slide. */
+.di-lrow-main:hover .di-lrow-act {
+  transform: translateX(-24px);
+}
+.di-lrow-close {
+  /* No clickable footprint while invisible (T15 review): hover restores it. */
+  pointer-events: none;
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.1);
+  color: #dfe2e8;
+  opacity: 0;
+  transition: opacity 150ms ease, background 150ms ease;
+}
+.di-lrow-main:hover .di-lrow-close,
+.di-lrow-close:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.di-lrow-close:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+.di-light-content .di-lrow-close {
+  background: rgba(0, 0, 0, 0.08);
+  color: rgba(0, 0, 0, 0.6);
+}
+@media (prefers-reduced-motion: reduce) {
+  .di-lrow-act,
+  .di-lrow-close {
+    transition: none;
+  }
+}
+
+/* ---- Inline row expansion (T18) ------------------------------------------ */
+/* An expanded row keeps a faint tint on its whole column so the header + the
+   revealed actions read as one unit while open. */
+.di-lrow[data-expanded="true"] {
+  background: rgba(255, 255, 255, 0.04);
+}
+.di-light-content .di-lrow[data-expanded="true"] {
+  background: rgba(0, 0, 0, 0.04);
+}
+/* The revealed panel grows BELOW the header. The 560px list cap still holds: the
+   `.di-list-body` scroll container absorbs this growth (D5), never the frame. */
+.di-lrow-expand {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 2px 8px 10px 34px; /* left indent aligns actions under the row text */
+  animation: di-row-in 0.25s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .di-lrow-expand {
+    animation: none;
+  }
+}
+.di-lrow-msg {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.7);
+}
+.di-light-content .di-lrow-msg {
+  color: rgba(0, 0, 0, 0.62);
+}
+/* All actions in a wrap row, styled by the SHARED `.action-button` anatomy
+   (overlay.css) for parity with the card - only the flex sizing is overridden so
+   buttons hug their labels and wrap instead of stretching edge-to-edge. */
+.di-lrow-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.di-lrow-actions .action-button {
+  flex: 0 1 auto;
+}

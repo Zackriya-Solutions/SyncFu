@@ -63,10 +63,78 @@ syncfu send -t "Loop complete" -p high -i circle-check \
 | 🖥️ | **Multi-monitor** | Notifications follow your mouse cursor across displays |
 | 🔗 | **Webhook callbacks** | Action buttons POST to your `callbackUrl` for closed-loop automation |
 | 📊 | **Live progress bars** | Update in-flight notifications with progress, body changes, new actions |
-| 🧪 | **181 tests** | 72 frontend + 70 Rust server + 29 CLI unit + 10 CLI integration |
+| 🏝️ | **[notch notifications](#notch-notifications)** | Notch-covering capsule that morphs pill ↔ card — ambient, hover-reveal, hides from screen capture |
+| 🧪 | **443 tests** | 227 frontend + 169 Rust server + 47 CLI |
 | ⚡ | **Zero config** | No config files — everything is API-driven per notification |
 
 <br />
+
+<br />
+
+## Screenshots
+
+syncfu notifications on a MacBook: the capsule covers the notch and spring-morphs from an ambient pill into a full card. On non-notch Macs, Windows, and Linux it renders as a floating capsule.
+
+<p align="center">
+  <img src="docs/images/island/notch-cover-expanded.png" width="560" alt="The island covering a MacBook notch: the card's wedge top is flush at the screen edge over the cutout, content below it" /><br />
+  <sub>On a notched Mac, syncfu <strong>covers the notch</strong> — the black shape absorbs the cutout and content sits below it (shown on a bright wallpaper so the shape is visible).</sub>
+</p>
+
+<table>
+<tr>
+<td align="center" width="50%"><img src="docs/images/island/island-compact.png" width="320" alt="Collapsed ambient pill" /><br /><sub>Idle — a compact ambient pill</sub></td>
+<td align="center" width="50%"><img src="docs/images/island/island-expanded-basic.png" width="420" alt="Expanded island card" /><br /><sub>Expands to a full card on arrival or click</sub></td>
+</tr>
+</table>
+
+<table>
+<tr>
+<td align="center"><img src="docs/images/island/island-compact-progress.png" width="300" alt="Collapsed pill with a mini progress ring" /><br /><sub>Collapsed — live mini-ring</sub></td>
+<td align="center"><img src="docs/images/island/island-expanded-progress-bar.png" width="380" alt="Expanded card with a progress bar" /><br /><sub>Expanded — progress bar</sub></td>
+<td align="center"><img src="docs/images/island/island-expanded-progress-ring.png" width="380" alt="Expanded card with a progress ring" /><br /><sub><code>--progress-style ring</code></sub></td>
+</tr>
+</table>
+
+<table>
+<tr>
+<td align="center"><img src="docs/images/island/island-expanded-actions.png" width="400" alt="Decision card with primary and danger action buttons" /><br /><sub>Decision — primary / danger actions</sub></td>
+<td align="center"><img src="docs/images/island/island-expanded-critical.png" width="400" alt="Critical alert card" /><br /><sub>Critical — never auto-dismisses, close via hover x</sub></td>
+</tr>
+</table>
+
+<table>
+<tr>
+<td align="center"><img src="docs/images/island/island-expanded-styled-27.png" width="360" alt="Island card with custom colors and font" /><br /><sub>27 style overrides + Google Fonts</sub></td>
+<td align="center"><img src="docs/images/island/island-expanded-rich-body.png" width="360" alt="Island card with a longer rich body" /><br /><sub>Rich body content</sub></td>
+<td align="center"><img src="docs/images/island/island-expanded-tall.png" width="360" alt="Tall island card that grew to fit its content" /><br /><sub>Grows to fit — content never spills</sub></td>
+</tr>
+</table>
+
+<table>
+<tr>
+<td align="center"><img src="docs/images/island/position-left.png" width="300" alt="Float island anchored left" /><br /><sub>left</sub></td>
+<td align="center"><img src="docs/images/island/position-center.png" width="300" alt="Float island anchored center" /><br /><sub>center</sub></td>
+</tr>
+<tr>
+<td align="center"><img src="docs/images/island/position-right.png" width="300" alt="Float island anchored right" /><br /><sub>right</sub></td>
+<td align="center"><img src="docs/images/island/position-bottom-center.png" width="300" alt="Float island anchored bottom-center" /><br /><sub>bottom-center (expands upward)</sub></td>
+</tr>
+</table>
+
+<table>
+<tr>
+<td align="center"><img src="docs/images/island/appearance-dark-expanded.png" width="380" alt="Island in dark appearance" /><br /><sub>Dark appearance</sub></td>
+<td align="center"><img src="docs/images/island/appearance-light-expanded.png" width="380" alt="Island in light appearance" /><br /><sub>Light appearance</sub></td>
+</tr>
+</table>
+
+<table>
+<tr>
+<td align="center"><img src="docs/images/island/island-group-compact-2.png" width="300" alt="Compact pill with a spotlight item and an x2 badge" /><br /><sub>Spotlight + <code>x2</code> badge</sub></td>
+<td align="center"><img src="docs/images/island/island-group-compact-10.png" width="300" alt="Compact pill with a 9+ badge" /><br /><sub>Badge caps at <code>9+</code></sub></td>
+<td align="center"><img src="docs/images/island/island-group-list.png" width="360" alt="Expanded ranked list of notifications with per-row actions and Clear all" /><br /><sub>Expanded ranked list — per-row actions, Clear all</sub></td>
+</tr>
+</table>
 
 Built with **Tauri v2** + **Rust** (axum) + **React** (Zustand). Ships on macOS, Windows, and Linux.
 
@@ -85,6 +153,7 @@ Built with **Tauri v2** + **Rust** (axum) + **React** (Zustand). Ships on macOS,
 - [Integrations](#integrations)
 - [Architecture](#architecture)
 - [Customization](#customization)
+- [notch notifications](#notch-notifications)
 - [Roadmap](#roadmap)
 - [Contributing](#contributing)
 - [License](#license)
@@ -440,6 +509,7 @@ Closing the main window hides it — syncfu keeps running in the tray. The overl
 | `sender` | string | yes | Identifier for the sending process |
 | `title` | string | yes | Notification title |
 | `body` | string | yes | Body text (plain text) |
+| `presentation` | string | no | `island` (default when omitted) or `card` - routes to the [notch notification](#notch-notifications) or the top-right card. |
 | `icon` | string | no | Lucide icon name (e.g. `phone`, `git-pull-request`, `bell`) |
 | `font` | string | no | Google Font name (e.g. `Space Grotesk`, `JetBrains Mono`) |
 | `priority` | string | no | `low`, `normal` (default), `high`, `critical` |
@@ -619,6 +689,134 @@ syncfu send -t "Fancy" --font "Space Grotesk" "With a custom font"
 
 ---
 
+## Notch notifications
+
+The **notch notification** is syncfu's second presentation and, as of 0.4.0, the **default** — `syncfu send` routes here unless you pass `--presentation card`. It is a pure-black capsule anchored top-center that spring-morphs between a compact pill and an expanded card. On a MacBook it **covers the physical notch** (its concave wedge top sits flush at the screen edge, over the cutout, so it reads as one shape); on non-notch Macs, Windows, and Linux it renders as a floating capsule.
+
+It suits glanceable, ambient status for long agent tasks (timers, progress, approvals), and it can be hidden from screen recording and screen sharing so private notifications do not leak on a live capture (see the [support matrix](#screen-capture-support-matrix) for the exact per-OS guarantee). For the full reference (every setting, the payload field, troubleshooting), see [`docs/island.md`](docs/island.md).
+
+### Interaction model
+
+In notch mode the notification moves through four states, where the count is the number of active notch notifications:
+
+```
+   count 0            count >= 1, idle          hover the notch/wings        click the pill
+  +--------+         +-------------------+       +--------------------+      +-----------------+
+  | hidden |  --->   |   ambient wings   | --->  | revealed pill      | ---> | expanded card   |
+  | window |         | slim black stubs  |       | slides down under  |      | full content,   |
+  | hidden | <---    | beside the cutout |<----  | the cutout with the|<---- | actions, x, bar |
+  +--------+  count  | + accent dot or   | leave | collapsed content  | click| (click surface  |
+              back 0 | mini progress ring|  +grace                     | card |  to collapse)   |
+                     +-------------------+       +--------------------+      +-----------------+
+```
+
+1. **Hidden** (count 0): the island window is hidden entirely.
+2. **Ambient wings** (collapsed, idle): the under-notch pill is concealed and two slim black extensions peek out beside the physical cutout, flush at the screen top. The right wing carries a priority-accent dot, or a mini progress ring when the notification carries progress. The wings are the ambient signal - there is no glyph or label.
+3. **Revealed pill** (hover): hovering the physical notch or its wings drops a notch-shaped pill down out of the cutout with the collapsed content. The pill covers the notch (its concave top sits flush at the screen edge, over the cutout) so it reads as one shape, never a second notch. Leaving conceals it back to the wings after a short grace.
+4. **Expanded card** (click / arrival): the full card. Click the revealed pill to expand; click the card surface (anywhere that is not a button) to collapse.
+
+A fresh notification arrives EXPANDED, holds ~2.6s, then auto-collapses to the pill. A **decision** (a notification carrying actions, i.e. a pending `--wait`) and any **critical** notification stay expanded and never auto-collapse. The window is a click-through envelope: clicks pass to the apps underneath except over the drawn pill or card. Float / non-notch mode skips the ambient-wings and hover-reveal steps - the pill is always visible and expands on click.
+
+### Live progress
+
+Update one notification in place as a task advances - the island never stacks a new one per step. While collapsed the right ambient wing carries a mini progress ring; expanded, it shows a bar or a ring.
+
+### Decisions and critical alerts
+
+A decision (action buttons, i.e. a pending `--wait`) and any critical notification arrive expanded and stay that way until you resolve them.
+
+### Dismissal
+
+- **Expanded card x**: hover the expanded card to reveal a close x. This is also the only way to dismiss a **critical no-action** notification (it never auto-dismisses and has no action buttons).
+- **Per-row x** (multi-notification list): each row has a hover-visible x that dismisses just that row.
+- **"Clear all"** (multi-notification list header): empties the island in one click. Note: it calls `dismiss-all`, which also clears any top-right **card** notifications and resolves every waiter as dismissed. It is a deliberate global clear.
+
+All three resolve the same waiter path a dismissed card uses (CLI `--wait` exit 1).
+
+### Sending a notification
+
+Every notification uses the notch notification by default; route one to the top-right card with `--presentation card`:
+
+```bash
+syncfu send --presentation island -t "Deploying" "Rolling out v2.3"
+```
+
+Everything the card supports works on the island: actions, priority timeouts, progress, grouping, and all 27 style overrides. Geometry and position are not part of the payload (they are app settings, see below); the payload only carries the `style` overrides.
+
+```bash
+syncfu send --presentation island -t "Approve?" \
+  -a "yes:Approve:primary" -a "no:Reject:danger" \
+  --wait --wait-timeout 120 "Merge PR #42?"
+# stdout: the chosen action id; exit 0 = action, 1 = dismissed, 2 = timeout
+```
+
+Over HTTP, add the same field to the payload:
+
+```bash
+curl -X POST localhost:9868/notify \
+  -H "Content-Type: application/json" \
+  -d '{"sender":"deploy","title":"Deploying","body":"Rolling out v2.3","presentation":"island"}'
+```
+
+An omitted `presentation` field defaults to the notch notification (`island`). A present value must be `card` or `island`.
+
+### `--wait` exit codes
+
+A `--wait` decision on the island arrives expanded and stays expanded until you answer; its auto-dismiss is paused while it waits. If you never answer, the CLI's `--wait-timeout` (default 300s) elapses and the command exits `2` (timeout). This differs from the top-right card, where an unanswered non-critical decision auto-dismisses when its priority timeout elapses and the command exits `1` (dismissed).
+
+### Notch vs float
+
+- **Notch mode** (default): the capsule covers the top-center notch. Its concave-shouldered top sits flush at the screen edge, over the physical cutout, so the black shape absorbs the hardware notch and reads as one shape (never a second notch below it). The compact pill matches the cutout width, and content is inset below the cutout so nothing renders behind it. The pill stays pure black even in light appearance so it blends with the physical notch. `position` is ignored in notch mode.
+- **Float mode**: a fully-rounded floating capsule you can place `left`, `center`, `right`, or `bottom-center` (`bottom-center` is float-only and expands upward). Non-notch Macs, Windows, and Linux always float; float layout is unchanged by the notch adaptation.
+
+Float placement (`mode: float`) anchors the capsule to any edge; `bottom-center` expands upward.
+
+The `appearance` setting is `dark`, `light`, or `auto` (follows the OS). In notch mode the compact pill stays pure black regardless, so it always blends with the physical cutout.
+
+### Multiple notifications
+
+When more than one island notification is active, the compact pill shows the highest-priority **spotlight** item plus an `xN` count badge (capped at `9+`). Expanding reveals a priority-ranked, deduped list (critical first) capped at 6 rows before it scrolls. Auto-dismiss is paused while the list is open. Notifications with a pending `--wait` are exempt from de-duplication so each keeps its own exit code.
+
+### Single instance
+
+Only one syncfu app runs at a time. A second launch is terminated immediately and the first instance's main window comes to the front (shown, focused, unminimized). This prevents a duplicate from squatting beside the first with a dead HTTP bind on `:9868`.
+
+### Settings
+
+The island's geometry and appearance are **app-wide settings**, not per-notification. Senders never control them. Configure the 13 settings from the app's Island panel; they persist across restarts (stored as `island.settings.json` in the app config dir). Out-of-range numeric values are clamped, not rejected.
+
+| Setting | Range | Default | Notes |
+|---------|-------|---------|-------|
+| `compactWidth` | 150-600 | 218 | compact pill width (px) |
+| `expandedWidth` | 320-560 | 380 | expanded card width (px) |
+| `height` | 24-60 | 34 | capsule height (px) |
+| `surfaceOpacity` | 0-100% | 94 | surface fill alpha (stored as 0.0-1.0) |
+| `topRadius` | 0-24 | 6 | top-corner radius (px) |
+| `bottomRadius` | 0-40 | 14 | bottom-corner radius (px) |
+| `cornerScaling` | on / off | on | scale radii between compact and expanded |
+| `accent` | preset or hex | `#4a9eff` | accent color |
+| `mode` | notch / float | notch | notch hugs the notch; float detaches |
+| `position` | left / center / right / bottom-center | center | float mode only |
+| `appearance` | dark / light / auto | dark | notch compact pill stays black even in light |
+| `reducedMotion` | on / off | off | uses the calmer 1000/100 springs |
+| `hideFromScreenCapture` | on / off | on | exclude from screen capture (see matrix) |
+
+### Screen-capture support matrix
+
+`hideFromScreenCapture` maps to the OS content-protection flag. What the OS actually delivers:
+
+| Platform | Behavior | Notes |
+|----------|----------|-------|
+| macOS 14 (Sonoma) and earlier | Hidden | Guaranteed: the OS honors the exclusion. |
+| macOS 15 (Sequoia) and later | Best effort | The flag is applied but ScreenCaptureKit can still capture the window, and there is no public API to force exclusion. The app reports this status honestly and never claims a guarantee. |
+| Windows 10 build 19041 and newer | Hidden | Guaranteed (`WDA_EXCLUDEFROMCAPTURE`). |
+| Windows older than build 19041 | Not supported | No reliable exclusion mechanism. |
+| Linux | Not supported | No reliable capture-exclusion API. |
+
+The island never claims to be invisible where the OS cannot deliver it. On macOS 15+ and unsupported platforms the setting is surfaced with its true status.
+
+---
+
 ## Roadmap
 
 ### Shipped
@@ -637,7 +835,8 @@ syncfu send -t "Fancy" --font "Space Grotesk" "With a custom font"
 - [x] Multi-monitor support (follows mouse cursor)
 - [x] Click-through overlay (only cards interactive)
 - [x] One-command install (`curl | sh` + PowerShell)
-- [x] 181 tests (72 frontend + 70 server + 29 CLI unit + 10 CLI integration)
+- [x] Notch notifications (covers the notch, morphs pill ↔ card, default presentation)
+- [x] 443 tests (227 frontend + 169 Rust server + 47 CLI)
 
 ### Planned
 

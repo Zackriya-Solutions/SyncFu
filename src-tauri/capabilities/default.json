@@ -1,7 +1,11 @@
 {
   "identifier": "default",
   "description": "Default capabilities for syncfu desktop app",
-  "windows": ["main", "overlay"],
+  "windows": [
+    "main",
+    "overlay",
+    "island"
+  ],
   "permissions": [
     "core:default",
     "core:event:default",

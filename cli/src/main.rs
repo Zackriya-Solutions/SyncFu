@@ -46,6 +46,10 @@ enum Commands {
         #[arg(short, long, default_value = "normal")]
         priority: Priority,
 
+        /// Presentation: island (default), card
+        #[arg(long, default_value = "island")]
+        presentation: Presentation,
+
         /// Lucide icon name
         #[arg(short, long)]
         icon: Option<String>,
@@ -174,6 +178,7 @@ async fn run(cli: Cli, client: &SyncfuClient) -> Result<()> {
             title,
             sender,
             priority,
+            presentation,
             icon,
             timeout,
             actions,
@@ -212,6 +217,7 @@ async fn run(cli: Cli, client: &SyncfuClient) -> Result<()> {
                 body,
                 icon,
                 priority,
+                presentation,
                 timeout: timeout.map(|t| parse_timeout(&t)),
                 actions: parsed_actions,
                 progress: progress_info,

@@ -22,6 +22,20 @@ describe("App", () => {
     expect(screen.getByTestId("overlay-root")).toBeInTheDocument();
   });
 
+  it("renders island view when window label is 'island'", () => {
+    vi.mocked(tauriWindow.getCurrentWindow).mockReturnValue({
+      label: "island",
+      setIgnoreCursorEvents: vi.fn(() => Promise.resolve()),
+      show: vi.fn(() => Promise.resolve()),
+      hide: vi.fn(() => Promise.resolve()),
+      close: vi.fn(() => Promise.resolve()),
+      onCloseRequested: vi.fn(() => Promise.resolve(() => {})),
+    } as unknown as ReturnType<typeof tauriWindow.getCurrentWindow>);
+
+    render(<App />);
+    expect(screen.getByTestId("island-root")).toBeInTheDocument();
+  });
+
   it("renders main app view when window label is 'main'", () => {
     vi.mocked(tauriWindow.getCurrentWindow).mockReturnValue({
       label: "main",

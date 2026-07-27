@@ -4602,7 +4602,7 @@ dependencies = [
 
 [[package]]
 name = "syncfu"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -4612,6 +4612,8 @@ dependencies = [
  "futures",
  "indexmap 2.13.0",
  "log",
+ "objc2-app-kit",
+ "objc2-foundation",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
@@ -4631,7 +4633,7 @@ dependencies = [
 
 [[package]]
 name = "syncfu-cli"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "clap",

@@ -48,6 +48,61 @@ syncfu update "$ID" --progress 0.5 --progress-label "50%"
 syncfu update "$ID" --progress 1.0 --body "Done!"
 ```
 
+## notch notification
+
+The island is a second presentation: a notch-anchored capsule (floating on
+non-notch machines). It is the default presentation; route to the corner card with `--presentation card`.
+Everything the card supports works on the island. Geometry/position are app
+settings, never payload fields.
+
+**When to prefer the island over the card:**
+
+- **Ambient long-running status** - a task that runs for a while and whose
+  progress the human wants to glance at. Send once with `--progress` and
+  `--timeout never`, then `syncfu update <id> --progress ...` in a loop. On the
+  notch the island shows a mini progress ring in its ambient state, so the human
+  reads progress at a glance without the notification stealing focus.
+- **A decision that can sit and wait** - an island `--wait` decision stays
+  expanded until answered and does not auto-dismiss, so it will not vanish while
+  the human is away.
+
+Prefer the plain **card** for one-shot fire-and-forget messages that should land
+in the corner and auto-dismiss.
+
+```bash
+# Ambient progress on the island
+ID=$(syncfu send --presentation island -t "Migrating" --timeout never \
+  --progress 0 --json "Starting..." | jq -r .id)
+syncfu update "$ID" --progress 0.5 --progress-label "50%"
+syncfu update "$ID" --progress 1.0 --body "Done"
+syncfu dismiss "$ID"
+```
+
+**Decision requests (`--wait`) exit-code contract** - identical flags to the
+card, but note the island-specific unanswered case:
+
+```bash
+syncfu send --presentation island -t "Deploy?" \
+  -a "yes:Approve:primary" -a "no:Reject:danger" \
+  --wait --wait-timeout 120 "Ship v2.3 to prod?"
+# exit 0 = an action was clicked (stdout = action id)
+# exit 1 = dismissed (the human hovered the card's x)
+# exit 2 = UNANSWERED until --wait-timeout. On the island this is the ONLY
+#          unanswered outcome: the decision stays expanded and never
+#          auto-dismisses (unlike a card, which auto-dismisses to exit 1).
+```
+
+Always branch on all three exit codes; treat 1 and 2 as "not approved".
+
+**The four-state model (how it affects the human's attention):** an island
+notification arrives EXPANDED for ~2.6s, then auto-collapses to a small pill
+(a decision or a critical notification stays expanded). While collapsed and idle
+on the notch it shrinks to slim "ambient wings" beside the cutout with an accent
+dot or progress ring - a deliberately low-attention signal. The human hovers the
+notch to reveal the pill and clicks to expand. So: a decision or critical item
+demands attention (stays expanded); ambient progress does not (collapses to the
+wings). Pick priority and `--wait` accordingly.
+
 ## All flags
 
 | Flag | Description |

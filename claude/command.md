@@ -71,6 +71,35 @@ Use `--wait` when:
 - A decision point requires user input via notification
 - You need to gate further work on user approval
 
+### Route to the notch notification
+
+The island is a notch-anchored capsule (floating on non-notch machines), opted in
+per notification with `--presentation island`. Everything the card supports works
+on it. Prefer the island for:
+
+- **Ambient long-running status** the user wants to glance at - send once with
+  `--progress` and `--timeout never`, then `syncfu update <id> --progress ...` as
+  the work advances. It shows a mini progress ring in its collapsed ambient state
+  without stealing focus.
+- **A decision that must not vanish** - an island `--wait` decision stays expanded
+  until answered and never auto-dismisses.
+
+Use `--presentation card` for one-shot messages that should auto-dismiss in the corner.
+
+```bash
+# Ambient island progress
+ID=$(syncfu send --presentation island -t "Build" --timeout never \
+  --progress 0.3 --progress-label "3/10" --json "compiling" | jq -r .id)
+syncfu update "$ID" --progress 0.6 --progress-label "6/10"
+
+# Island decision (same exit-code contract as the card)
+syncfu send --presentation island -t "Deploy?" \
+  -a "yes:Yes:primary" -a "no:No:danger" --wait --wait-timeout 120 "Ship to prod?"
+```
+
+Exit codes are unchanged: 0 = action, 1 = dismissed, 2 = timeout. On the island
+an unanswered decision can only reach exit 2 (it never auto-dismisses to 1).
+
 ### Args reference
 
 ```

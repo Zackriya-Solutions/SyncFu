@@ -39,6 +39,10 @@ function resizeToContent(el: HTMLElement | null, expanded: boolean, count: numbe
 
 export function NotificationOverlay() {
   const { notifications, dismiss } = useNotifications();
+  // Exclusion filter (defense in depth, guard G1): the top-right panel renders
+  // only card-presentation items. Island adds are scoped to the island window
+  // via emit_to, but a broadcast could still land here - never render them.
+  const cards = notifications.filter((n) => n.presentation !== "island");
   const rootRef = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false);
 
@@ -50,15 +54,15 @@ export function NotificationOverlay() {
 
   // Hide panel when empty, resize to fit content when not
   useEffect(() => {
-    if (notifications.length === 0) {
+    if (cards.length === 0) {
       getCurrentWindow().hide();
       setExpanded(false);
     } else {
       requestAnimationFrame(() =>
-        resizeToContent(rootRef.current, expanded, notifications.length)
+        resizeToContent(rootRef.current, expanded, cards.length)
       );
     }
-  }, [notifications.length, expanded]);
+  }, [cards.length, expanded]);
 
   // Observe the notification stack for content size changes (progress updates, etc)
   useEffect(() => {
@@ -67,11 +71,11 @@ export function NotificationOverlay() {
     const stack = root.querySelector(".notification-stack");
     if (!stack) return;
     const observer = new ResizeObserver(() => {
-      resizeToContent(root, expanded, notifications.length);
+      resizeToContent(root, expanded, cards.length);
     });
     observer.observe(stack);
     return () => observer.disconnect();
-  }, [notifications.length, expanded]);
+  }, [cards.length, expanded]);
 
   const handleAction = useCallback(
     (notificationId: string, actionId: string) => {
@@ -87,7 +91,7 @@ export function NotificationOverlay() {
 
   return (
     <div data-testid="overlay-root" className="overlay-root" ref={rootRef}>
-      {notifications.length > 0 && (
+      {cards.length > 0 && (
         <div
           data-testid="notification-stack"
           className="notification-stack"
@@ -95,12 +99,12 @@ export function NotificationOverlay() {
           onMouseEnter={() => setExpanded(true)}
           onMouseLeave={() => setExpanded(false)}
         >
-          {notifications.map((notification, index) => (
+          {cards.map((notification, index) => (
             <NotificationCard
               key={notification.id}
               notification={notification}
               index={index}
-              total={notifications.length}
+              total={cards.length}
               expanded={expanded}
               onDismiss={dismiss}
               onAction={handleAction}

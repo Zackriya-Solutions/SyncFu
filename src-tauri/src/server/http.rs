@@ -11,12 +11,12 @@ use axum::{
 use futures::stream::Stream;
 use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
-use tower_http::cors::CorsLayer;
+use tokio::sync::broadcast;
 
 use crate::notification::manager::NotificationManager;
 use crate::notification::types::{
-    Action, NotificationPayload, NotificationUpdate, Priority, ProgressInfo, StyleOverrides,
-    Timeout,
+    Action, NotificationPayload, NotificationUpdate, Presentation, Priority, ProgressInfo,
+    StyleOverrides, Timeout,
 };
 use crate::server::waiters::{WaitEvent, WaiterRegistry};
 use crate::server::webhook::{self, WebhookPayload, WebhookResult};
@@ -39,6 +39,8 @@ pub struct NotifyRequest {
     pub icon: Option<String>,
     #[serde(default = "default_priority")]
     pub priority: Priority,
+    #[serde(default)]
+    pub presentation: Presentation,
     #[serde(default)]
     pub timeout: Option<Timeout>,
     #[serde(default)]
@@ -106,9 +108,14 @@ pub fn build_router(state: ServerState) -> Router {
         .route("/dismiss-all", post(handle_dismiss_all))
         .route("/health", get(handle_health))
         .route("/active", get(handle_active))
-        .layer(CorsLayer::permissive())
         .with_state(state)
 }
+// NOTE (security review P1): no CORS layer. The server binds loopback only and its
+// only clients are the CLI, curl, and server-side integrations - none of which need
+// CORS. A permissive CORS layer previously let any website POST cross-origin to
+// :9868 to spoof notifications or inject a `callback_url` (SSRF); removing it closes
+// that browser vector entirely. (A callback_url denylist is deliberately NOT added -
+// localhost/private callbacks are a documented, legitimate use of this local tool.)
 
 /// Start the HTTP server on the given port.
 pub async fn start_server(state: ServerState, port: u16) -> Result<(), std::io::Error> {
@@ -130,6 +137,7 @@ async fn handle_notify(
         body: req.body,
         icon: req.icon,
         priority: req.priority,
+        presentation: req.presentation,
         timeout: req.timeout.unwrap_or_default(),
         actions: req.actions,
         progress: req.progress,
@@ -143,14 +151,38 @@ async fn handle_notify(
 
     let id = state.manager.add(payload.clone()).await;
 
-    // Show panel and emit to frontend
+    // Show the target overlay window and emit to it, routed by presentation.
+    // Card: existing broadcast + top-right panel (byte-identical). Island: scoped to the island
+    // window so the panel never pops (FR-3) and never accumulates island state.
     if let Some(ref app) = state.app_handle {
-        crate::overlay::panel::show_panel(app);
         debug!("Emitting notification:add for id={id}");
-        match tauri::Emitter::emit(app, "notification:add", &payload) {
+        let emit = match crate::overlay::OverlayRoute::of(payload.presentation) {
+            crate::overlay::OverlayRoute::Panel => {
+                crate::overlay::panel::show_panel(app);
+                tauri::Emitter::emit(app, "notification:add", &payload)
+            }
+            crate::overlay::OverlayRoute::Island => {
+                crate::overlay::island::show_island(app);
+                tauri::Emitter::emit_to(
+                    app,
+                    crate::overlay::island::ISLAND_LABEL,
+                    "notification:add",
+                    &payload,
+                )
+            }
+        };
+        match emit {
             Ok(()) => info!("Notification emitted: id={id} sender={}", req_sender),
             Err(e) => error!("Failed to emit notification:add: {e}"),
         }
+        // History ingest (presentation-agnostic, single ingest point): one broadcast
+        // per accepted notification so the main window records it once, for BOTH card
+        // and island. Only the main-window historyStore listens; the overlay/island
+        // windows ignore it. Idempotent by id on the frontend guards redelivery.
+        if let Err(e) = tauri::Emitter::emit(app, "history:add", &payload) {
+            error!("Failed to emit history:add: {e}");
+        }
+        crate::emit_island_snapshot(app, &state.manager, &state.waiters).await;
     } else {
         warn!("No app_handle — cannot emit notification event");
     }
@@ -178,6 +210,7 @@ async fn handle_update(
                 "notification:update",
                 &serde_json::json!({ "id": id, "update": update }),
             );
+            crate::emit_island_snapshot(app, &state.manager, &state.waiters).await;
         }
         info!("Notification updated: id={id}");
         StatusCode::OK
@@ -229,13 +262,19 @@ async fn handle_action(
 
     // Dismiss after action
     let dismissed = state.manager.dismiss(&id).await;
-    if dismissed.is_some() {
+    if let Some(ref notification) = dismissed {
         if let Some(ref app) = state.app_handle {
             let _ = tauri::Emitter::emit(app, "notification:dismiss", &id);
-            if state.manager.active_count().await == 0 {
-                crate::overlay::panel::hide_panel(app);
+            if state.manager.active_count_for(notification.presentation).await == 0 {
+                crate::overlay::hide_for(app, notification.presentation);
             }
         }
+    }
+    // Emit unconditionally (aligned with lib.rs action_callback): even if the
+    // post-action dismiss raced to None, the waiter resolution above may have
+    // changed hasWaiter, so the snapshot must reconcile (T6 review F2-low).
+    if let Some(ref app) = state.app_handle {
+        crate::emit_island_snapshot(app, &state.manager, &state.waiters).await;
     }
 
     info!(
@@ -243,6 +282,40 @@ async fn handle_action(
         req.action_id, result.success
     );
     Ok(Json(result))
+}
+
+/// Drop-guard that reconciles the waiter registry when a `--wait` SSE stream is torn
+/// down by the CLIENT (disconnect / Ctrl+C), which `notify()` never observes. Without
+/// it a client that dies mid-wait leaves its entry forever: the notification stays
+/// `hasWaiter=true` - permanently dedupe-exempt (A4) and auto-dismiss-suppressed (F2)
+/// - so a same-key resend coexists with the zombie. Held by (and only by) the wait
+/// stream, so it drops exactly when the connection ends. Removal is delegated to
+/// `remove_if_orphaned`, whose channel-identity + receiver-liveness guards keep a late
+/// drop from a resolved/replaced/shared channel from evicting a live entry.
+struct WaitGuard {
+    state: ServerState,
+    id: String,
+    sender: broadcast::Sender<WaitEvent>,
+}
+
+impl Drop for WaitGuard {
+    fn drop(&mut self) {
+        // Drop is sync; the registry lock is async - hand the cleanup to the runtime.
+        // By the time it acquires the lock, this stream's receiver is fully dropped,
+        // so `receiver_count()` is accurate.
+        let state = self.state.clone();
+        let id = std::mem::take(&mut self.id);
+        let sender = self.sender.clone();
+        tokio::spawn(async move {
+            if state.waiters.remove_if_orphaned(&id, &sender).await {
+                // The dead waiter is gone: re-emit so hasWaiter / dedupe reconciles
+                // live (a zombie no longer blocks a same-key resend from merging).
+                if let Some(ref app) = state.app_handle {
+                    crate::emit_island_snapshot(app, &state.manager, &state.waiters).await;
+                }
+            }
+        });
+    }
 }
 
 async fn handle_wait(
@@ -257,12 +330,17 @@ async fn handle_wait(
     // Subscribe BEFORE checking existence to avoid race condition:
     // if the notification is resolved between our check and subscribe,
     // we'd miss the event.
-    let mut rx = state.waiters.subscribe(&id).await;
+    let (sender, mut rx) = state.waiters.subscribe_with_sender(&id).await;
 
     // Verify notification still exists
     let exists = state.manager.get(&id).await.is_some();
     if !exists {
         info!("Wait: notification {id} already resolved");
+        // Clean up the entry we just created: no stream (hence no drop-guard) carries
+        // it on this early path, so without this an already-resolved wait would leak a
+        // permanent zombie entry. Drop our receiver first so the liveness guard sees 0.
+        drop(rx);
+        state.waiters.remove_if_orphaned(&id, &sender).await;
         let stream = futures::stream::iter(vec![Ok(Event::default()
             .event("message")
             .data(
@@ -273,7 +351,27 @@ async fn handle_wait(
 
     info!("Wait: SSE stream opened for id={id}");
 
+    // A waiter just became PENDING for this id. hasWaiter and the A4 dedupe
+    // exemption are derived from the WaiterRegistry, which no manager mutation
+    // tracks - without this re-emit, a same-key notification that subscribed
+    // after the last emit stays merged away (unreachable row, wrong exit 2) and
+    // its auto-dismiss suppression reads stale hasWaiter=false. One emit per
+    // --wait, mirroring the creation-read reconcile philosophy (T6 review F1).
+    if let Some(ref app) = state.app_handle {
+        crate::emit_island_snapshot(app, &state.manager, &state.waiters).await;
+    }
+
+    // Cleanup on client disconnect (Ctrl+C): the guard is captured by the stream
+    // generator, so it drops when the connection ends - even if the stream is dropped
+    // before it is ever polled (the generator still owns the captured guard).
+    let guard = WaitGuard {
+        state: state.clone(),
+        id: id.clone(),
+        sender,
+    };
+
     let stream = async_stream::stream! {
+        let _guard = guard;
         // Send connected event so CLI knows the stream is live
         yield Ok(Event::default()
             .event("message")
@@ -306,16 +404,17 @@ async fn handle_dismiss(
     debug!("Dismiss request for id={id}");
     let dismissed = state.manager.dismiss(&id).await;
 
-    if dismissed.is_some() {
+    if let Some(ref notification) = dismissed {
         // Notify waiting CLI clients
         state.waiters.notify(&id, WaitEvent::Dismissed).await;
 
         if let Some(ref app) = state.app_handle {
             let _ = tauri::Emitter::emit(app, "notification:dismiss", &id);
-            // Hide panel if no more active notifications
-            if state.manager.active_count().await == 0 {
-                crate::overlay::panel::hide_panel(app);
+            // Hide the hosting window if no more active notifications
+            if state.manager.active_count_for(notification.presentation).await == 0 {
+                crate::overlay::hide_for(app, notification.presentation);
             }
+            crate::emit_island_snapshot(app, &state.manager, &state.waiters).await;
         }
         info!("Notification dismissed: id={id}");
         StatusCode::OK
@@ -335,8 +434,11 @@ async fn handle_dismiss_all(
     let count = dismissed.len();
 
     if let Some(ref app) = state.app_handle {
+        // Broadcast dismissal hides both overlay windows.
         crate::overlay::panel::hide_panel(app);
+        crate::overlay::island::hide_island(app);
         let _ = tauri::Emitter::emit(app, "notification:dismiss-all", &count);
+        crate::emit_island_snapshot(app, &state.manager, &state.waiters).await;
     }
 
     info!("All notifications dismissed: count={count}");
@@ -363,6 +465,7 @@ mod tests {
     use super::*;
     use axum::body::Body;
     use axum::http::Request;
+    use futures::StreamExt;
     use tower::ServiceExt;
 
     fn test_state() -> ServerState {
@@ -476,6 +579,7 @@ mod tests {
             body: "Body".to_string(),
             icon: None,
             priority: Priority::Normal,
+            presentation: Presentation::Card,
             timeout: Timeout::default(),
             actions: vec![],
             progress: None,
@@ -534,6 +638,7 @@ mod tests {
                 body: "Body".to_string(),
                 icon: None,
                 priority: Priority::Normal,
+                presentation: Presentation::Card,
                 timeout: Timeout::default(),
                 actions: vec![],
                 progress: None,
@@ -580,6 +685,7 @@ mod tests {
             body: "Original".to_string(),
             icon: None,
             priority: Priority::Normal,
+            presentation: Presentation::Card,
             timeout: Timeout::default(),
             actions: vec![],
             progress: None,
@@ -653,6 +759,7 @@ mod tests {
             body: "Body".to_string(),
             icon: None,
             priority: Priority::Normal,
+            presentation: Presentation::Card,
             timeout: Timeout::default(),
             actions: vec![],
             progress: None,
@@ -697,6 +804,7 @@ mod tests {
             body: "Body".to_string(),
             icon: None,
             priority: Priority::Normal,
+            presentation: Presentation::Card,
             timeout: Timeout::default(),
             actions: vec![],
             progress: None,
@@ -738,6 +846,7 @@ mod tests {
             body: "Done".to_string(),
             icon: None,
             priority: Priority::Normal,
+            presentation: Presentation::Card,
             timeout: Timeout::default(),
             actions: vec![Action {
                 id: "approve".to_string(),
@@ -844,6 +953,111 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_notify_default_presentation_is_island() {
+        let state = test_state();
+        let app = build_router(state.clone());
+
+        app.oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/notify")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&serde_json::json!({
+                        "sender": "test",
+                        "title": "Hello",
+                        "body": "World"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+        let active = state.manager.list_active().await;
+        assert_eq!(active[0].presentation, Presentation::Island);
+    }
+
+    #[tokio::test]
+    async fn test_notify_presentation_island_survives_boundary() {
+        let state = test_state();
+        let app = build_router(state.clone());
+
+        app.oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/notify")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&serde_json::json!({
+                        "sender": "test",
+                        "title": "Hello",
+                        "body": "World",
+                        "presentation": "island"
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+        let active = state.manager.list_active().await;
+        assert_eq!(active[0].presentation, Presentation::Island);
+    }
+
+    #[tokio::test]
+    async fn test_card_and_island_route_to_distinct_windows() {
+        use crate::overlay::OverlayRoute;
+        let state = test_state();
+        let app = build_router(state.clone());
+
+        // A card send and an island send through the real HTTP boundary.
+        for (title, presentation) in [("card-one", "card"), ("island-one", "island")] {
+            app.clone()
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/notify")
+                        .header("content-type", "application/json")
+                        .body(Body::from(
+                            serde_json::to_string(&serde_json::json!({
+                                "sender": "test",
+                                "title": title,
+                                "body": "b",
+                                "presentation": presentation
+                            }))
+                            .unwrap(),
+                        ))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+        }
+
+        let active = state.manager.list_active().await;
+        assert_eq!(active.len(), 2);
+
+        // Each notification routes to its own window: card -> overlay, island -> island.
+        // The island route is never the panel, so an island send never pops the top-right panel.
+        for n in &active {
+            let route = OverlayRoute::of(n.presentation);
+            match n.presentation {
+                Presentation::Card => {
+                    assert_eq!(route, OverlayRoute::Panel);
+                    assert_eq!(route.window_label(), "overlay");
+                }
+                Presentation::Island => {
+                    assert_eq!(route, OverlayRoute::Island);
+                    assert_eq!(route.window_label(), "island");
+                    assert_ne!(route, OverlayRoute::Panel);
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
     async fn test_wait_nonexistent_returns_dismissed_immediately() {
         let app = build_router(test_state());
 
@@ -877,6 +1091,7 @@ mod tests {
             body: "Body".to_string(),
             icon: None,
             priority: Priority::Normal,
+            presentation: Presentation::Card,
             timeout: Timeout::default(),
             actions: vec![],
             progress: None,
@@ -930,6 +1145,7 @@ mod tests {
             body: "Done".to_string(),
             icon: None,
             priority: Priority::Normal,
+            presentation: Presentation::Card,
             timeout: Timeout::default(),
             actions: vec![Action {
                 id: "approve".to_string(),
@@ -995,6 +1211,7 @@ mod tests {
             body: "Body".to_string(),
             icon: None,
             priority: Priority::Normal,
+            presentation: Presentation::Card,
             timeout: Timeout::default(),
             actions: vec![],
             progress: None,
@@ -1029,6 +1246,123 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_wait_client_disconnect_cleans_up_registry() {
+        // The user's reproduction, at its root: a --wait client that dies (Ctrl+C)
+        // must not leave its registry entry behind. We open the SSE wait stream,
+        // consume ONLY the `connected` frame (an ephemeral in-process server via
+        // `oneshot` - NEVER read the body to completion, which would block forever on
+        // an unresolved wait), then drop the stream to simulate the disconnect.
+        let state = test_state();
+        let payload = NotificationPayload {
+            id: "wait-dc".to_string(),
+            sender: "ci".to_string(),
+            title: "Deploy?".to_string(),
+            body: "prod".to_string(),
+            icon: None,
+            priority: Priority::Normal,
+            presentation: Presentation::Island,
+            timeout: Timeout::default(),
+            actions: vec![Action {
+                id: "approve".to_string(),
+                label: "Approve".to_string(),
+                style: crate::notification::types::ActionStyle::Primary,
+                icon: None,
+                bg: None,
+                color: None,
+                border_color: None,
+            }],
+            progress: None,
+            group: None,
+            theme: None,
+            sound: None,
+            callback_url: None,
+            style: None,
+            created_at: chrono::Utc::now(),
+        };
+        state.manager.add(payload).await;
+
+        let app = build_router(state.clone());
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/notify/wait-dc/wait")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        // Poll exactly one frame (the `connected` event) so the stream started and the
+        // waiter is live, then drop the body - the client hanging up.
+        let mut body = response.into_body().into_data_stream();
+        let first = body.next().await.expect("connected frame").expect("frame ok");
+        assert!(
+            String::from_utf8_lossy(&first).contains("connected"),
+            "first frame is connected"
+        );
+        assert_eq!(state.waiters.waiter_count().await, 1);
+
+        drop(body); // client disconnect (Ctrl+C)
+
+        // The drop-guard spawns its cleanup on the runtime; give it a few ticks.
+        let mut cleaned = false;
+        for _ in 0..50 {
+            if state.waiters.waiter_count().await == 0 {
+                cleaned = true;
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert!(cleaned, "disconnect must remove the leaked waiter entry");
+        assert!(
+            !state.waiters.active_ids().await.contains("wait-dc"),
+            "the dead waiter no longer marks the notification hasWaiter (dedupe reconciles)"
+        );
+
+        // And the notification can still be resolved by a fresh action on its id.
+        let app2 = build_router(state.clone());
+        let resp2 = app2
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/notify/wait-dc/action")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_string(&serde_json::json!({ "action_id": "approve" }))
+                            .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp2.status(), StatusCode::OK);
+        assert_eq!(state.manager.active_count().await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_wait_already_resolved_does_not_leak_entry() {
+        // The early-return path (notification already gone) subscribes before the
+        // existence check (the deliberate race guard) - it must clean up the entry it
+        // created so an already-resolved wait never leaks a permanent zombie.
+        let state = test_state();
+        let app = build_router(state.clone());
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/notify/ghost/wait")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        // Consume the immediate dismissed frame.
+        let _ = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        assert_eq!(state.waiters.waiter_count().await, 0);
+    }
+
+    #[tokio::test]
     async fn test_dismiss_all_notifies_waiters() {
         let state = test_state();
         for i in 0..2 {
@@ -1039,6 +1373,7 @@ mod tests {
                 body: "Body".to_string(),
                 icon: None,
                 priority: Priority::Normal,
+                presentation: Presentation::Card,
                 timeout: Timeout::default(),
                 actions: vec![],
                 progress: None,

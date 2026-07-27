@@ -1,4 +1,4 @@
-//! Notification panel window — a small positioned overlay instead of fullscreen.
+//! Notification panel window - a small positioned overlay instead of fullscreen.
 //!
 //! Platform strategy:
 //! - macOS: NSPanel via tauri-nspanel (non-activating, joins all Spaces, proper z-order)
@@ -16,6 +16,8 @@ use tauri_nspanel::ManagerExt;
 // - can_become_main_window: false (never becomes the main window)
 // - is_floating_panel: true (floats above regular windows)
 #[cfg(target_os = "macos")]
+pub(crate) const PANEL_LABEL: &str = "overlay";
+
 tauri_nspanel::tauri_panel! {
     panel!(NotificationPanel {
         config: {
@@ -28,7 +30,7 @@ tauri_nspanel::tauri_panel! {
 
 /// Panel dimensions in logical pixels.
 /// Width matches the notification card max-width.
-/// Height starts minimal — frontend resizes dynamically to fit content.
+/// Height starts minimal - frontend resizes dynamically to fit content.
 pub const PANEL_WIDTH: f64 = 400.0;
 pub const PANEL_INITIAL_HEIGHT: f64 = 10.0;
 
@@ -79,7 +81,7 @@ pub fn create_panel(app: &AppHandle) -> Result<(), String> {
     {
         Some(monitor) => calculate_panel_position(monitor),
         None => {
-            info!("No monitor info — using default panel position");
+            info!("No monitor info - using default panel position");
             PanelPosition { x: 1508.0, y: 12.0 }
         }
     };
@@ -112,7 +114,7 @@ fn create_macos_panel(
 ) -> Result<(), String> {
     use tauri_nspanel::PanelBuilder;
 
-    let _panel = PanelBuilder::<_, NotificationPanel>::new(app, "overlay")
+    let _panel = PanelBuilder::<_, NotificationPanel>::new(app, PANEL_LABEL)
         .url(tauri::WebviewUrl::App("index.html".into()))
         .level(tauri_nspanel::PanelLevel::Status)
         .no_activate(true)
@@ -156,7 +158,7 @@ fn create_standard_panel(
 ) -> Result<(), String> {
     let _window = tauri::WebviewWindowBuilder::new(
         app,
-        "overlay",
+        PANEL_LABEL,
         tauri::WebviewUrl::App("index.html".into()),
     )
     .transparent(true)
@@ -198,7 +200,7 @@ pub fn show_panel(app: &AppHandle) {
         // The underlying WebviewWindow is used for positioning on all platforms,
         // since NSPanel doesn't expose set_position directly.
         if let Some(pos) = position {
-            if let Some(window) = inner.get_webview_window("overlay") {
+            if let Some(window) = inner.get_webview_window(PANEL_LABEL) {
                 let _ = window.set_position(tauri::Position::Logical(
                     tauri::LogicalPosition::new(pos.x, pos.y),
                 ));
@@ -207,13 +209,13 @@ pub fn show_panel(app: &AppHandle) {
 
         #[cfg(target_os = "macos")]
         {
-            if let Ok(panel) = inner.get_webview_panel("overlay") {
+            if let Ok(panel) = inner.get_webview_panel(PANEL_LABEL) {
                 panel.show();
                 return;
             }
         }
 
-        if let Some(window) = inner.get_webview_window("overlay") {
+        if let Some(window) = inner.get_webview_window(PANEL_LABEL) {
             let _ = window.show();
         }
     });
@@ -229,13 +231,13 @@ pub fn hide_panel(app: &AppHandle) {
     let _ = handle.run_on_main_thread(move || {
         #[cfg(target_os = "macos")]
         {
-            if let Ok(panel) = inner.get_webview_panel("overlay") {
+            if let Ok(panel) = inner.get_webview_panel(PANEL_LABEL) {
                 panel.hide();
                 return;
             }
         }
 
-        if let Some(window) = inner.get_webview_window("overlay") {
+        if let Some(window) = inner.get_webview_window(PANEL_LABEL) {
             let _ = window.hide();
         }
     });
@@ -246,46 +248,61 @@ pub fn hide_panel(app: &AppHandle) {
 /// Iterates all available monitors and checks which one contains the
 /// current cursor position. Falls back to None if cursor position
 /// can't be determined or no monitor matches.
-fn get_cursor_monitor_info(app: &AppHandle) -> Option<MonitorInfo> {
+pub(crate) fn get_cursor_monitor_info(app: &AppHandle) -> Option<MonitorInfo> {
     let cursor_pos = get_cursor_position()?;
     let monitors = app.available_monitors().ok()?;
 
     for monitor in monitors {
         let pos = monitor.position();
         let size = monitor.size();
+        let info = MonitorInfo {
+            x: pos.x as f64,
+            y: pos.y as f64,
+            width: size.width as f64,
+            height: size.height as f64,
+            scale_factor: monitor.scale_factor(),
+        };
 
-        let left = pos.x as f64;
-        let top = pos.y as f64;
-        let right = left + size.width as f64;
-        let bottom = top + size.height as f64;
-
-        if cursor_pos.0 >= left
-            && cursor_pos.0 < right
-            && cursor_pos.1 >= top
-            && cursor_pos.1 < bottom
-        {
+        if cursor_in_monitor_logical(cursor_pos, info) {
             info!(
                 "Cursor at ({}, {}) is on monitor at ({}, {}), size {}x{}",
                 cursor_pos.0, cursor_pos.1, pos.x, pos.y, size.width, size.height
             );
-            return Some(MonitorInfo {
-                x: pos.x as f64,
-                y: pos.y as f64,
-                width: size.width as f64,
-                height: size.height as f64,
-                scale_factor: monitor.scale_factor(),
-            });
+            return Some(info);
         }
     }
 
-    info!("Cursor at ({}, {}) — no matching monitor found", cursor_pos.0, cursor_pos.1);
+    info!("Cursor at ({}, {}) - no matching monitor found", cursor_pos.0, cursor_pos.1);
     None
+}
+
+/// Half-open containment test in LOGICAL points - the T13 coordinate convention (see
+/// `overlay/hover.rs`, empirically verified on real hardware). `cursor` is Quartz global DISPLAY
+/// POINTS (logical, top-left origin - what `get_cursor_position` returns via `CGEvent::location`),
+/// while `monitor.position()`/`size()` are PHYSICAL pixels; each monitor bound is divided by that
+/// monitor's own `scale_factor` to reach the same logical space before comparing.
+///
+/// The pre-T17 code compared the logical cursor against the raw physical bounds. On a Retina (2x)
+/// multi-display setup a monitor's physical width overlaps the LOGICAL origin of the display placed
+/// to its right (e.g. a 1470-logical / 2940-physical built-in overlaps a second display that starts
+/// at logical x=1470), so a cursor on the right-hand display was mis-selected onto the built-in and
+/// the overlay opened on the wrong screen. This also fixes the CARD's monitor-following on Retina.
+fn cursor_in_monitor_logical(cursor_logical: (f64, f64), m: MonitorInfo) -> bool {
+    let scale = if m.scale_factor > 0.0 { m.scale_factor } else { 1.0 };
+    let left = m.x / scale;
+    let top = m.y / scale;
+    let right = left + m.width / scale;
+    let bottom = top + m.height / scale;
+    cursor_logical.0 >= left
+        && cursor_logical.0 < right
+        && cursor_logical.1 >= top
+        && cursor_logical.1 < bottom
 }
 
 /// Get the current mouse cursor position in physical pixels.
 /// Returns (x, y) or None if unavailable.
 #[cfg(target_os = "macos")]
-fn get_cursor_position() -> Option<(f64, f64)> {
+pub(crate) fn get_cursor_position() -> Option<(f64, f64)> {
     use core_graphics::event::CGEvent;
     use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
 
@@ -296,13 +313,13 @@ fn get_cursor_position() -> Option<(f64, f64)> {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn get_cursor_position() -> Option<(f64, f64)> {
+pub(crate) fn get_cursor_position() -> Option<(f64, f64)> {
     // TODO: Implement for Windows/Linux
     None
 }
 
 /// Extract monitor info from the primary monitor (fallback).
-fn get_primary_monitor_info(app: &AppHandle) -> Option<MonitorInfo> {
+pub(crate) fn get_primary_monitor_info(app: &AppHandle) -> Option<MonitorInfo> {
     match app.primary_monitor() {
         Ok(Some(monitor)) => {
             let size = monitor.size();
@@ -350,7 +367,7 @@ mod tests {
 
     #[test]
     fn test_panel_position_retina_display() {
-        // MacBook Pro 14" — physical 3024×1964, scale 2.0
+        // MacBook Pro 14" - physical 3024×1964, scale 2.0
         let monitor = MonitorInfo {
             x: 0.0,
             y: 0.0,
@@ -427,8 +444,68 @@ mod tests {
     fn test_panel_dimensions_are_reasonable() {
         assert!(PANEL_WIDTH > 300.0, "Panel too narrow for notifications");
         assert!(PANEL_WIDTH < 500.0, "Panel too wide");
-        // Initial height is minimal — frontend resizes dynamically
+        // Initial height is minimal - frontend resizes dynamically
         assert!(PANEL_INITIAL_HEIGHT <= 20.0, "Initial height should be tiny");
+    }
+
+    // --- Cursor->monitor selection in LOGICAL space (T17 fix for the T13-flagged latent bug) ---
+    //
+    // Fixtures encode the real dual-display Retina geometry the regression was reported on. The
+    // library reports `monitor.position()`/`size()` in PHYSICAL pixels (== logical * scale, the same
+    // convention hover.rs proved for `window.outer_position()`); the cursor from `CGEvent::location`
+    // is in GLOBAL LOGICAL points. The built-in is 1470 logical / 2940 physical @ 2x at the origin;
+    // an external sits to its RIGHT starting at global logical x=1470.
+
+    /// Built-in MacBook panel: 1470x956 logical, 2x -> physical 2940x1912 at the origin.
+    const BUILTIN: MonitorInfo = MonitorInfo {
+        x: 0.0,
+        y: 0.0,
+        width: 2940.0,
+        height: 1912.0,
+        scale_factor: 2.0,
+    };
+
+    /// External to the right, starting at global logical x=1470 -> physical origin 1470 @ 1x.
+    const EXTERNAL_1X: MonitorInfo = MonitorInfo {
+        x: 1470.0,
+        y: 0.0,
+        width: 2560.0,
+        height: 1440.0,
+        scale_factor: 1.0,
+    };
+
+    #[test]
+    fn cursor_on_external_is_not_claimed_by_the_retina_builtin() {
+        // A cursor at global logical (1500, 300) is on the EXTERNAL. The corrected logical test
+        // rejects the built-in (its logical right edge is 2940/2 = 1470, and 1500 >= 1470) and
+        // selects the external. The OLD physical test would have matched the built-in first
+        // (1500 < 2940 physical) and opened the overlay on the wrong screen.
+        assert!(!cursor_in_monitor_logical((1500.0, 300.0), BUILTIN));
+        assert!(cursor_in_monitor_logical((1500.0, 300.0), EXTERNAL_1X));
+    }
+
+    #[test]
+    fn cursor_on_builtin_selects_the_builtin() {
+        // A cursor at global logical (700, 300) is on the built-in; the external starts at 1470.
+        assert!(cursor_in_monitor_logical((700.0, 300.0), BUILTIN));
+        assert!(!cursor_in_monitor_logical((700.0, 300.0), EXTERNAL_1X));
+    }
+
+    #[test]
+    fn cursor_containment_is_half_open() {
+        // 1080p @ 1x: logical bounds [0,1920) x [0,1080). Origin inclusive, far/bottom edges
+        // exclusive so adjacent displays never both claim the seam.
+        let m = MonitorInfo { x: 0.0, y: 0.0, width: 1920.0, height: 1080.0, scale_factor: 1.0 };
+        assert!(cursor_in_monitor_logical((0.0, 0.0), m)); // top-left inclusive
+        assert!(!cursor_in_monitor_logical((1920.0, 100.0), m)); // right edge exclusive
+        assert!(!cursor_in_monitor_logical((100.0, 1080.0), m)); // bottom edge exclusive
+    }
+
+    #[test]
+    fn cursor_containment_degenerate_scale_does_not_divide_by_zero() {
+        // A non-positive scale (never expected) falls back to 1.0 rather than producing NaN bounds.
+        let m = MonitorInfo { x: 0.0, y: 0.0, width: 800.0, height: 600.0, scale_factor: 0.0 };
+        assert!(cursor_in_monitor_logical((400.0, 300.0), m));
     }
 
     #[test]

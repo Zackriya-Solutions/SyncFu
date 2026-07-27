@@ -143,3 +143,8 @@ Next: WebSocket server, CLI, or Test UI.
 - color-mix() for glass works but 12% opacity too transparent on busy backgrounds — bumped to 96%
 - CSS @property for --pulse-opacity enables smooth Siri-style glow animation
 - Google Fonts loaded via dynamic <link> injection with display=swap — deduplicates across cards
+
+# Dynamic Island feature (2026-07-21/22)
+Shipped via PR #5 (feat/dynamic-island): island presentation, Model B overflow, 13 settings,
+capture status, dismissal, single-instance, stay-put multi-display placement. Release gates:
+docs/RELEASE-CHECKLIST.md. Internal run log: local tasks/dynamic-island/run-log.md (untracked).

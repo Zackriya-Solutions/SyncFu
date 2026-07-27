@@ -22,9 +22,11 @@ export const event = {
   }),
 };
 
-export const invoke = vi.fn((_cmd: string, _args?: Record<string, unknown>) => {
-  return Promise.resolve(null);
-});
+export const invoke = vi.fn(
+  (_cmd: string, _args?: Record<string, unknown>): Promise<unknown> => {
+    return Promise.resolve(null);
+  }
+);
 
 export const core = {
   invoke,
