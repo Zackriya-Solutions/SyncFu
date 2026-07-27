@@ -14,11 +14,13 @@ import { DEFAULT_ISLAND_SETTINGS } from "@/types/islandSettings";
 // hardware measurement is a 183 x 32 cutout.
 const G1: NotchGeometry = { widthLogical: 183, heightLogical: 32 };
 
-describe("effectiveIslandSettings (under-notch sizing)", () => {
-  it("takes the cutout width and at least the cutout height in notch mode", () => {
+describe("effectiveIslandSettings (cover-the-notch sizing)", () => {
+  it("takes the ambient-wings width and at least the cutout height in notch mode", () => {
     const eff = effectiveIslandSettings(DEFAULT_ISLAND_SETTINGS, "notch", G1);
-    // Width is EXACTLY the cutout width so the pill reads as a second notch.
-    expect(eff.compactWidth).toBe(183);
+    // Width MATCHES the ambient wings (cutout 183 + 2*24 wings = 231) so the idle
+    // wings and the revealed pill share the top band - hover has no width jump.
+    expect(eff.compactWidth).toBe(231);
+    expect(eff.compactWidth).toBe(ambientWingsSize(G1).width);
     // Height is max(userHeight, cutoutHeight); the 34 default already clears 32.
     expect(eff.height).toBe(Math.max(DEFAULT_ISLAND_SETTINGS.height, 32));
     // Everything else is untouched (expanded width, radii, accent, ...).

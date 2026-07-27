@@ -36,13 +36,14 @@ export interface NotchGeometry {
 }
 
 /** Adopt the physical notch geometry into the COMPACT geometry the morph controller targets so the
- *  collapsed pill COVERS the physical cutout (T13; option A): the compact pill width is EXACTLY the
- *  cutout width (so its black shape reads as the notch itself) and its height is at least the cutout
- *  height. The shape then covers the notch from the screen top via the controller's notch cap
- *  (`setNotchCap`) plus the `.di-content` top padding, NOT a down-offset. Float mode and the
- *  no-geometry case (jsdom/tests, pre-event) return the settings unchanged, so every existing float
- *  baseline is byte-identical. Threaded through the SAME configure/applySettings path settings take -
- *  never a parallel one. */
+ *  collapsed pill COVERS the physical cutout (T13; option A): the compact pill width MATCHES the
+ *  ambient-wings width (cutout + one wing per side) so the idle wings and the revealed pill share the
+ *  exact same top band - hovering only drops the content strip in, with no sideways stub retraction.
+ *  Its height is at least the cutout height. The shape then covers the notch from the screen top via
+ *  the controller's notch cap (`setNotchCap`) plus the `.di-content` top padding, NOT a down-offset.
+ *  Float mode and the no-geometry case (jsdom/tests, pre-event) return the settings unchanged, so every
+ *  existing float baseline is byte-identical. Threaded through the SAME configure/applySettings path
+ *  settings take - never a parallel one. */
 export function effectiveIslandSettings(
   settings: IslandSettings,
   mode: IslandMode,
@@ -51,7 +52,7 @@ export function effectiveIslandSettings(
   if (mode !== "notch" || !geo) return settings;
   return {
     ...settings,
-    compactWidth: geo.widthLogical,
+    compactWidth: ambientWingsSize(geo).width,
     height: Math.max(settings.height, geo.heightLogical),
   };
 }

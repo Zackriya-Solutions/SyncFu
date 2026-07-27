@@ -118,9 +118,10 @@ describe("Island under-notch layout (T13/T14)", () => {
     expect(screen.getByTestId("island-ambient")).toHaveAttribute("data-visible", "false");
   });
 
-  it("takes the cutout width for the compact pill (second-notch sizing)", () => {
-    // The controller writes the effective width imperatively; the pill is exactly
-    // the 183pt cutout width, not the 218 default.
+  it("takes the ambient-wings width for the compact pill (seamless hover-reveal)", () => {
+    // The controller writes the effective width imperatively; the pill matches the
+    // ambient wings (cutout 183 + 2*24 = 231), NOT the bare cutout width, so the
+    // idle wings and the revealed pill share the top band (no sideways jump on hover).
     render(
       <Island
         notification={makeNotification()}
@@ -129,7 +130,7 @@ describe("Island under-notch layout (T13/T14)", () => {
         notchGeometry={G1}
       />
     );
-    expect(screen.getByTestId("island").style.width).toBe("183px");
+    expect(screen.getByTestId("island").style.width).toBe("231px");
   });
 
   it("covers the notch: compact height is the strip + the cutout cap (option A)", () => {
