@@ -3,7 +3,7 @@
 All notable changes to syncfu are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/) (0.x: minor versions may change behavior).
 
-## 0.4.0
+## 0.4.1
 
 ### Added
 
@@ -41,6 +41,13 @@ All notable changes to syncfu are documented here. This project adheres to
   minimizing to an ambient dot after 2.6s (matches the documented invariant).
 - The grouped-list per-item auto-dismiss timers no longer restart on unrelated
   snapshot changes (a progress tick could previously keep a row from ever dismissing).
+
+### Fixed (cross-platform build)
+
+- Build correctly on Windows and Linux. `PANEL_LABEL` was mistakenly gated to
+  macOS while the `tauri_nspanel!` macro was left ungated, so non-macOS builds
+  failed to compile. (0.4.0 was tagged but never published for this reason;
+  0.4.1 is the first published build of these features.)
 
 ### Security
 
