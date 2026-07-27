@@ -350,15 +350,37 @@ export const Island = forwardRef<IslandHandle, IslandProps>(function Island(
   const isDecision = notification.actions.length > 0;
   const autoDismissMs = resolveTimeout(notification.timeout, notification.priority);
 
+  // Live cursor-over-shape signal (T17, `island:hover`), read via a ref so a hover
+  // toggle never restarts the timers below (card parity). Shared by BOTH the arrival
+  // auto-collapse and the auto-dismiss so each pauses while the island is hovered.
+  const hoveredRef = useRef(hovered);
+  hoveredRef.current = hovered;
+
   // Ratified entry transition: arrive expanded, hold, auto-collapse to the pill.
   // Skipped while controlled (the harness/tests pin the state) AND for decisions,
   // which STAY EXPANDED until answered (invariant b; T4b auto-collapse suppressed).
   // Keyed on renderState so a MANUAL expand (click trigger below) re-arms the
   // hold and the island re-collapses after the same interval.
+  //
+  // Hover-pause (card parity): do NOT collapse the arrival card out from under a
+  // reader. Once the hold elapses, wait until the cursor leaves the island, then
+  // collapse to the pill - mirroring the auto-dismiss hover-pause below.
   useEffect(() => {
     if (controlled || isDecision || renderState !== "expanded") return;
-    const id = setTimeout(() => setRenderState("compact"), ENTRY_HOLD_MS);
-    return () => clearTimeout(id);
+    const HOVER_POLL_MS = 200;
+    let poll: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      if (hoveredRef.current) {
+        poll = setTimeout(tick, HOVER_POLL_MS);
+      } else {
+        setRenderState("compact");
+      }
+    };
+    const armed = setTimeout(tick, ENTRY_HOLD_MS);
+    return () => {
+      clearTimeout(armed);
+      clearTimeout(poll);
+    };
   }, [controlled, isDecision, renderState]);
 
   // User click trigger: the island toggles compact<->expanded on click (the
@@ -378,11 +400,8 @@ export const Island = forwardRef<IslandHandle, IslandProps>(function Island(
   //
   // Hover-pause (T17, card parity): once the timeout elapses, DEFER the dismissal
   // while the island is hovered - exactly what NotificationCard does (poll every
-  // HOVER_POLL_MS until the cursor leaves, then dismiss). `hovered` is read via a
-  // ref so a hover toggle never restarts the timer (matching the card, which reads
-  // live cursor state rather than re-running its effect).
-  const hoveredRef = useRef(hovered);
-  hoveredRef.current = hovered;
+  // HOVER_POLL_MS until the cursor leaves, then dismiss). Reads the shared
+  // `hoveredRef` (declared above) so a hover toggle never restarts the timer.
   useEffect(() => {
     if (controlled || isDecision || autoDismissMs === null || !onDismiss) return;
     const HOVER_POLL_MS = 200;

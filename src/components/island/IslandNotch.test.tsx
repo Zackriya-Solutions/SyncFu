@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, act } from "@testing-library/react";
 import { Island } from "./Island";
 import type { NotchGeometry } from "@/lib/islandMorph";
 import type { NotificationPayload } from "@/types/notification";
@@ -171,6 +171,34 @@ describe("Island under-notch layout (T13/T14)", () => {
     expect(screen.getByTestId("island-reveal")).not.toHaveAttribute("data-notch");
     // Float never shows the ambient wings indicator (no ambient state off the notched panel).
     expect(screen.queryByTestId("island-ambient")).not.toBeInTheDocument();
+  });
+
+  it("arrival does NOT auto-collapse while hovered; collapses once the cursor leaves", () => {
+    // Regression: the arrival card must not collapse out from under a reader. While
+    // `hovered` (island:hover) is true the 2.6s auto-collapse is deferred; when the
+    // cursor leaves, the next poll collapses to the compact pill (card hover-pause parity).
+    vi.stubGlobal("requestAnimationFrame", () => 1);
+    vi.stubGlobal("cancelAnimationFrame", () => {});
+    vi.useFakeTimers();
+    try {
+      const { rerender } = render(
+        <Island notification={makeNotification()} mode="notch" notchGeometry={G1} hovered />
+      );
+      // Arrives expanded.
+      expect(screen.getByTestId("island-expanded")).toBeInTheDocument();
+      // Hold elapses, but hovered -> still expanded (collapse deferred).
+      act(() => vi.advanceTimersByTime(5000));
+      expect(screen.getByTestId("island-expanded")).toBeInTheDocument();
+      // Cursor leaves -> the next poll collapses to the compact pill.
+      rerender(
+        <Island notification={makeNotification()} mode="notch" notchGeometry={G1} hovered={false} />
+      );
+      act(() => vi.advanceTimersByTime(300));
+      expect(screen.getByTestId("island-compact")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
   });
 
   it("reports the shape hitbox on settle (BUG B): onSettle fires with a rect", () => {
