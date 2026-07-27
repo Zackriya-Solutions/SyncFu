@@ -631,9 +631,14 @@ syncfu send -t "Fancy" --font "Space Grotesk" "With a custom font"
 
 ## Dynamic Island
 
-The **Dynamic Island** is a second notification presentation: a pure-black capsule anchored top-center that spring-morphs between a compact pill and an expanded card. It is additive - the top-right glass card stays the default, and you opt in per notification. On a MacBook it hugs the physical notch; on non-notch Macs, Windows, and Linux it renders as a floating capsule.
+The **Dynamic Island** is a second notification presentation: a pure-black capsule anchored top-center that spring-morphs between a compact pill and an expanded card. It is additive - the top-right glass card stays the default, and you opt in per notification. On a MacBook it **covers the physical notch** (its concave wedge top sits flush at the screen edge, over the cutout, so it reads as one shape); on non-notch Macs, Windows, and Linux it renders as a floating capsule.
 
 It suits glanceable, ambient status for long agent tasks (timers, progress, approvals), and it can be hidden from screen recording and screen sharing so private notifications do not leak on a live capture (see the [support matrix](#screen-capture-support-matrix) for the exact per-OS guarantee). For the full reference (every setting, the payload field, troubleshooting), see [`docs/island.md`](docs/island.md).
+
+<p align="center">
+  <img src="docs/images/island/notch-cover-expanded.png" width="560" alt="The island covering a MacBook notch: the card's wedge top is flush at the screen edge over the cutout, content below it" /><br />
+  <sub>On a notched Mac the island <strong>covers the notch</strong> — the black shape absorbs the cutout and content sits below it (shown on a bright wallpaper so the shape is visible).</sub>
+</p>
 
 <table>
 <tr>
