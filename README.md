@@ -64,7 +64,7 @@ syncfu send -t "Loop complete" -p high -i circle-check \
 | 🔗 | **Webhook callbacks** | Action buttons POST to your `callbackUrl` for closed-loop automation |
 | 📊 | **Live progress bars** | Update in-flight notifications with progress, body changes, new actions |
 | 🏝️ | **[notch notifications](#notch-notifications)** | Notch-covering capsule that morphs pill ↔ card — ambient, hover-reveal, hides from screen capture |
-| 🧪 | **181 tests** | 72 frontend + 70 Rust server + 29 CLI unit + 10 CLI integration |
+| 🧪 | **443 tests** | 227 frontend + 169 Rust server + 47 CLI |
 | ⚡ | **Zero config** | No config files — everything is API-driven per notification |
 
 <br />
@@ -835,7 +835,8 @@ The island never claims to be invisible where the OS cannot deliver it. On macOS
 - [x] Multi-monitor support (follows mouse cursor)
 - [x] Click-through overlay (only cards interactive)
 - [x] One-command install (`curl | sh` + PowerShell)
-- [x] 181 tests (72 frontend + 70 server + 29 CLI unit + 10 CLI integration)
+- [x] Notch notifications (covers the notch, morphs pill ↔ card, default presentation)
+- [x] 443 tests (227 frontend + 169 Rust server + 47 CLI)
 
 ### Planned
 
