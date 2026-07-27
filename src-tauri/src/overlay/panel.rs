@@ -11,13 +11,18 @@ use tauri::{AppHandle, Manager};
 #[cfg(target_os = "macos")]
 use tauri_nspanel::ManagerExt;
 
-// NSPanel type for macOS notification overlay:
+/// Tauri window label for the notification panel. A plain string used on EVERY
+/// platform (the macOS NSPanel and the non-macOS fallback WebviewWindow share it),
+/// so it must NOT be macOS-gated - the router in `overlay/mod.rs` reads it
+/// unconditionally.
+pub(crate) const PANEL_LABEL: &str = "overlay";
+
+// NSPanel type for macOS notification overlay (macOS-only - `tauri_nspanel` is a
+// macOS dependency, so both the macro and the crate path must be gated):
 // - can_become_key_window: false (never steals keyboard focus)
 // - can_become_main_window: false (never becomes the main window)
 // - is_floating_panel: true (floats above regular windows)
 #[cfg(target_os = "macos")]
-pub(crate) const PANEL_LABEL: &str = "overlay";
-
 tauri_nspanel::tauri_panel! {
     panel!(NotificationPanel {
         config: {
