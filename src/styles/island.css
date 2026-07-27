@@ -336,7 +336,7 @@
   /* No clickable footprint while invisible (T15 review): hover restores it. */
   pointer-events: none;
   position: absolute;
-  top: 4px;
+  top: 6px;
   right: 2px;
   z-index: 1;
   width: 20px;
@@ -366,7 +366,8 @@
   color: var(--s-close-color, rgba(0, 0, 0, 0.6));
 }
 @media (prefers-reduced-motion: reduce) {
-  .di-close {
+  .di-close,
+  .di-ehead .notification-time {
     transition: none;
   }
 }
@@ -411,6 +412,15 @@
   font-size: 10.5px;
   color: var(--s-time-color, #9aa4b4);
   flex: none;
+  /* The close button shares this top-right corner but only appears on hover. Rather
+   * than reserve a permanent gutter (which would strand the timestamp far off the
+   * right edge, since the close sits inside the content padding), the transient
+   * timestamp yields to the close on hover - no overlap, clean when not hovering. */
+  transition: opacity 150ms ease;
+}
+.di-island:hover .di-ehead .notification-time,
+.di-close:focus-visible + .di-erow .notification-time {
+  opacity: 0;
 }
 
 .di-title {
