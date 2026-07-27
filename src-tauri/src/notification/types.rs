@@ -42,7 +42,7 @@ pub enum Presentation {
 
 impl Default for Presentation {
     fn default() -> Self {
-        Self::Card
+        Self::Island
     }
 }
 
@@ -304,14 +304,14 @@ mod tests {
         assert_eq!(payload.sender, "ci");
         assert_eq!(payload.title, "Build passed");
         assert_eq!(payload.priority, Priority::Normal);
-        assert_eq!(payload.presentation, Presentation::Card);
+        assert_eq!(payload.presentation, Presentation::Island);
         assert!(payload.actions.is_empty());
         assert!(!payload.id.is_empty());
     }
 
     #[test]
-    fn test_presentation_default_is_card() {
-        assert_eq!(Presentation::default(), Presentation::Card);
+    fn test_presentation_default_is_island() {
+        assert_eq!(Presentation::default(), Presentation::Island);
     }
 
     #[test]
@@ -327,10 +327,10 @@ mod tests {
     }
 
     #[test]
-    fn test_payload_omitted_presentation_defaults_to_card() {
+    fn test_payload_omitted_presentation_defaults_to_island() {
         let json = r#"{ "sender": "ci", "title": "t", "body": "b" }"#;
         let payload: NotificationPayload = serde_json::from_str(json).unwrap();
-        assert_eq!(payload.presentation, Presentation::Card);
+        assert_eq!(payload.presentation, Presentation::Island);
     }
 
     #[test]

@@ -78,7 +78,7 @@ pub enum Presentation {
 
 impl Default for Presentation {
     fn default() -> Self {
-        Self::Card
+        Self::Island
     }
 }
 
@@ -399,8 +399,8 @@ mod tests {
     }
 
     #[test]
-    fn test_presentation_default_is_card() {
-        assert_eq!(Presentation::default(), Presentation::Card);
+    fn test_presentation_default_is_island() {
+        assert_eq!(Presentation::default(), Presentation::Island);
     }
 
     #[test]

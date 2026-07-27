@@ -949,7 +949,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_notify_default_presentation_is_card() {
+    async fn test_notify_default_presentation_is_island() {
         let state = test_state();
         let app = build_router(state.clone());
 
@@ -972,7 +972,7 @@ mod tests {
         .unwrap();
 
         let active = state.manager.list_active().await;
-        assert_eq!(active[0].presentation, Presentation::Card);
+        assert_eq!(active[0].presentation, Presentation::Island);
     }
 
     #[tokio::test]

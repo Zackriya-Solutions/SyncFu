@@ -46,8 +46,8 @@ enum Commands {
         #[arg(short, long, default_value = "normal")]
         priority: Priority,
 
-        /// Presentation: card, island
-        #[arg(long, default_value = "card")]
+        /// Presentation: island (default), card
+        #[arg(long, default_value = "island")]
         presentation: Presentation,
 
         /// Lucide icon name
