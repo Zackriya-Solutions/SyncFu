@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # agent-approval-gate.sh
 #
-# Ask the human to approve an action on the Dynamic Island, then branch on the
+# Ask the human to approve an action on the notch notification, then branch on the
 # answer. This is the pattern an AI agent uses to gate risky work (deploys,
 # destructive commands, spending) on a real human decision.
 #

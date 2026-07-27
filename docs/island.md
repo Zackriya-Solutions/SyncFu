@@ -1,6 +1,6 @@
-# Dynamic Island reference
+# Notch notifications reference
 
-The Dynamic Island is syncfu's second notification presentation: a pure-black
+The notch notification is syncfu's second presentation: a pure-black
 capsule anchored top-center that spring-morphs between a compact pill and an
 expanded card. It is additive. The top-right glass card stays the default, and a
 sender opts into the island per notification with `--presentation island`. On a
@@ -111,8 +111,8 @@ degrade to a plain rounded card.
 
 ## Sending to the island
 
-Route any notification to the island with `--presentation island` (the default
-is `card`):
+Every notification uses the notch notification by default; route one to the
+top-right card with `--presentation card`:
 
 ```bash
 syncfu send --presentation island -t "Deploying" "Rolling out v2.3"
@@ -131,8 +131,8 @@ curl -X POST localhost:9868/notify \
   -d '{"sender":"deploy","title":"Deploying","body":"Rolling out v2.3","presentation":"island"}'
 ```
 
-An omitted `presentation` defaults to the card, so existing integrations are
-unchanged. A present value must be `card` or `island`.
+An omitted `presentation` defaults to the notch notification (`island`). A
+present value must be `card` or `island`.
 
 ## `--wait` on the island: the exit-code contract
 

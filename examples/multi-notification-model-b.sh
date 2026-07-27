@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # multi-notification-model-b.sh
 #
-# Fill the Dynamic Island with several notifications at once to demonstrate
+# Fill the notch notification with several notifications at once to demonstrate
 # "Model B" - the multi-notification view.
 #
 # With more than one active island notification the compact pill shows the

@@ -71,7 +71,7 @@ Use `--wait` when:
 - A decision point requires user input via notification
 - You need to gate further work on user approval
 
-### Route to the Dynamic Island
+### Route to the notch notification
 
 The island is a notch-anchored capsule (floating on non-notch machines), opted in
 per notification with `--presentation island`. Everything the card supports works
@@ -84,7 +84,7 @@ on it. Prefer the island for:
 - **A decision that must not vanish** - an island `--wait` decision stays expanded
   until answered and never auto-dismisses.
 
-Use the default **card** for one-shot messages that should auto-dismiss.
+Use `--presentation card` for one-shot messages that should auto-dismiss in the corner.
 
 ```bash
 # Ambient island progress

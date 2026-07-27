@@ -48,10 +48,10 @@ syncfu update "$ID" --progress 0.5 --progress-label "50%"
 syncfu update "$ID" --progress 1.0 --body "Done!"
 ```
 
-## Dynamic Island
+## notch notification
 
 The island is a second presentation: a notch-anchored capsule (floating on
-non-notch machines). Route to it with `--presentation island` (default `card`).
+non-notch machines). It is the default presentation; route to the corner card with `--presentation card`.
 Everything the card supports works on the island. Geometry/position are app
 settings, never payload fields.
 
