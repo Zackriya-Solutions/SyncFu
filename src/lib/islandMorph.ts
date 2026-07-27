@@ -35,14 +35,14 @@ export interface NotchGeometry {
   readonly heightLogical: number;
 }
 
-/** Adopt the physical notch geometry into the COMPACT geometry the morph controller targets, so the
- *  collapsed pill renders as a SECOND NOTCH directly below the physical cutout (T13): the compact
- *  pill width is EXACTLY the cutout width (so its black shape reads as an extension of the notch) and
- *  its height is at least the cutout height (so it looks like the same band). Float mode and the
+/** Adopt the physical notch geometry into the COMPACT geometry the morph controller targets so the
+ *  collapsed pill COVERS the physical cutout (T13; option A): the compact pill width is EXACTLY the
+ *  cutout width (so its black shape reads as the notch itself) and its height is at least the cutout
+ *  height. The shape then covers the notch from the screen top via the controller's notch cap
+ *  (`setNotchCap`) plus the `.di-content` top padding, NOT a down-offset. Float mode and the
  *  no-geometry case (jsdom/tests, pre-event) return the settings unchanged, so every existing float
  *  baseline is byte-identical. Threaded through the SAME configure/applySettings path settings take -
- *  never a parallel one. The whole island is offset DOWN by the cutout height in CSS (island.css),
- *  so both compact and expanded content sit fully below the physical cutout. */
+ *  never a parallel one. */
 export function effectiveIslandSettings(
   settings: IslandSettings,
   mode: IslandMode,
@@ -174,6 +174,12 @@ export interface MorphController {
    *  light float pill vs the untouched dark path) and, when `mirrored` changes,
    *  repaints the current geometry with the flipped notch generator. Never morphs. */
   setSurface(surface: IslandSurface): void;
+  /** Notch "cap" (cover-the-notch, option A): grow the shape this many px taller at
+   *  the TOP so its concave wedge sits at the screen edge, over the physical cutout,
+   *  instead of below it. 0 in float / non-notch. Only the COMPACT height target reads
+   *  it; the expanded target gets the cap through the content's `--di-notch-h` top
+   *  padding, which the measured content height already includes. */
+  setNotchCap(cap: number): void;
   /** Cancel the pending frame AND the pending one-shot measure (R-RAF-DISPOSE). */
   dispose(): void;
 }
@@ -232,6 +238,14 @@ export function createMorphController(
   let light = false;
   let surfaceMode: IslandMode = "notch";
   let mirrored = false;
+  // Notch cap (option A - cover the notch): the compact shape target grows by this
+  // many px at the top so its concave wedge sits at the screen edge over the physical
+  // cutout, with content inset below it via CSS. 0 off the notch. Expanded gets the
+  // cap through the measured content height (its `--di-notch-h` top padding).
+  let notchCap = 0;
+  // Set once the first snap has run, so a creation-time setNotchCap is folded into
+  // that first snap and only a LIVE (display-change) update re-targets + kicks.
+  let snapped = false;
 
   /** Write the live geometry to the DOM. Path `d` + `--di-wall` are the wall
    *  inset content padding derives from (R-WALL), republished every frame.
@@ -310,7 +324,9 @@ export function createMorphController(
       sB.to(settings.cornerScaling ? RADII.expandedBottom : settings.bottomRadius);
     } else {
       sW.to(settings.compactWidth);
-      sH.to(settings.height);
+      // + notchCap so the collapsed pill covers the notch: the top band sits over
+      // the cutout and the content strip is the configured height below it.
+      sH.to(settings.height + notchCap);
       sT.to(settings.topRadius);
       sB.to(settings.bottomRadius);
     }
@@ -349,6 +365,7 @@ export function createMorphController(
 
   /** Arrive at a state instantly - springs snapped, no motion. */
   function snap(next: IslandState, reduced: boolean): void {
+    snapped = true;
     state = next;
     applyFill(next);
     setTargets(next, reduced);
@@ -412,6 +429,19 @@ export function createMorphController(
         const resting = sW.resting && sH.resting && sT.resting && sB.resting;
         paint(sW.x, sH.x, sT.x, sB.x, resting && state === "expanded");
       }
+    },
+    setNotchCap(cap) {
+      if (cap === notchCap) return;
+      notchCap = cap;
+      // Creation-time set: the first snap will read the new cap, so don't kick yet.
+      if (!snapped) return;
+      // Live display change (notch <-> float, or a different cutout): re-target the
+      // current state's height with the new cap and animate to it (never touch the
+      // OS frame - D3). Only compact's target moved; expanded re-measures via CSS.
+      setTargets(state, false);
+      publishSettled(false);
+      wasResting = false;
+      loop.kick();
     },
     dispose() {
       loop.dispose();

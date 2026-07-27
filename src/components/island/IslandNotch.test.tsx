@@ -4,11 +4,12 @@ import { Island } from "./Island";
 import type { NotchGeometry } from "@/lib/islandMorph";
 import type { NotificationPayload } from "@/types/notification";
 
-// T13/T14 under-notch layout (jsdom). With a real cutout geometry in notch mode the
-// island renders as a SECOND NOTCH below the cutout: the compact pill takes the
-// cutout WIDTH, the whole island is offset down by the cutout HEIGHT (published as
-// `--di-notch-h` on the `.di-reveal` wrapper), and the compact content lays out
-// NORMALLY - the sender label is back (no wing layout). While collapsed and NOT
+// T13/T14 cover-the-notch layout (jsdom; option A). With a real cutout geometry in
+// notch mode the island COVERS the cutout: the compact pill takes the cutout WIDTH
+// and is grown by the cutout HEIGHT (the notch cap) so its top band sits over the
+// notch, with the cutout height published as `--di-notch-h` on the `.di-reveal`
+// wrapper (it feeds the content's below-cutout top padding). The compact content lays
+// out NORMALLY - the sender label is back (no wing layout). While collapsed and NOT
 // hovered the pill is concealed and a minimal AMBIENT WINGS indicator shows in its
 // place (T14). Reveal follows `notchHover` even for controlled fixtures, so tests
 // pick the ambient vs revealed state explicitly. Without geometry (the default
@@ -129,6 +130,21 @@ describe("Island under-notch layout (T13/T14)", () => {
       />
     );
     expect(screen.getByTestId("island").style.width).toBe("183px");
+  });
+
+  it("covers the notch: compact height is the strip + the cutout cap (option A)", () => {
+    // The controller grows the compact shape by the cutout height so its top band
+    // covers the physical notch; the strip below is the configured height.
+    // effective height max(34,32)=34 + cutout cap 32 = 66.
+    render(
+      <Island
+        notification={makeNotification()}
+        state="compact"
+        mode="notch"
+        notchGeometry={G1}
+      />
+    );
+    expect(screen.getByTestId("island").style.height).toBe("66px");
   });
 
   it("stays float layout (no notch marker / offset) without geometry", () => {

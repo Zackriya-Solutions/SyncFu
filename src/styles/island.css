@@ -99,6 +99,13 @@
 .di-content {
   position: relative;
   z-index: 1;
+  /* Cover-the-notch (option A): inset the content below the physical cutout so the
+   * shape's top band can cover the notch while text/icons stay clear of it. The var
+   * is the cutout height, published on the `.di-reveal` wrapper in notch mode and
+   * inherited here; unset (float / non-notch) resolves to 0, so those layouts are
+   * byte-identical. box-sizing:border-box (globals) keeps this inside the compact
+   * `height:100%` box, and it is included in the expanded content measure. */
+  padding-top: var(--di-notch-h, 0px);
 }
 
 /* Compact: fixed-height pill, content vertically centered. */
@@ -115,24 +122,26 @@
   padding-right: max(16px, calc(var(--di-wall) + 5px));
 }
 
-/* ---- Under-notch second-notch pill + hover-reveal (T13) ------------------ *
- * On a real notched display the island renders as a SECOND NOTCH directly below
- * the physical cutout: same width as the cutout, flush top edge butted against the
- * cutout bottom, so its black shape merges into the hardware notch and reads as one
- * taller notch. The `.di-reveal` wrapper (Island/IslandGroup) carries this: it
- * offsets the WHOLE island DOWN by the cutout height (`--di-notch-h`) so BOTH the
- * compact pill and the expanded card lay out normally yet sit fully below the
- * cutout - no wing layout, no content-padding hacks (the shape top itself is at
- * y = notchHeight). The wrapper also slides the collapsed pill up out of sight
- * (concealed) until the physical notch is hovered (`data-revealed`, driven by the
- * backend `island:reveal` signal). Without `data-notch` (float / non-notch) the
- * wrapper is a layout-neutral passthrough and the pill is always visible. */
+/* ---- Cover-the-notch pill + hover-reveal (T13; option A cover) ------------ *
+ * On a real notched display the island COVERS the physical cutout: its concave-
+ * shouldered top sits flush at the screen edge (y = 0), over the notch, so the black
+ * shape absorbs the hardware notch and reads as one shape - never a second notch
+ * below it. The shape is grown taller by the cutout height (`setNotchCap` in
+ * islandMorph for compact; the expanded content measure via `--di-notch-h` top
+ * padding), and the content is inset below the cutout by the same `.di-content`
+ * padding. The `.di-reveal` wrapper therefore rests at y = 0 (no down-translate);
+ * it only slides the collapsed pill up out of sight (concealed) until the physical
+ * notch is hovered (`data-revealed`, driven by the backend `island:reveal` signal).
+ * `--di-notch-h` (the cutout height) is still published on the wrapper - it now
+ * feeds the content padding, not a translate. Without `data-notch` (float /
+ * non-notch) the wrapper is a layout-neutral passthrough and the pill is always
+ * visible. */
 .di-reveal[data-notch="true"] {
   will-change: transform, opacity;
 }
 .di-reveal[data-notch="true"][data-revealed="true"] {
-  /* Revealed resting position: the second notch, offset down by the cutout height. */
-  transform: translateY(var(--di-notch-h, 0px));
+  /* Revealed resting position: flush at the screen top, covering the notch. */
+  transform: translateY(0);
   opacity: 1;
 }
 .di-reveal[data-notch="true"][data-revealed="false"] {

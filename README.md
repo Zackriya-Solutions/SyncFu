@@ -659,7 +659,7 @@ In notch mode the island moves through four states, where the count is the numbe
 
 1. **Hidden** (count 0): the island window is hidden entirely.
 2. **Ambient wings** (collapsed, idle): the under-notch pill is concealed and two slim black extensions peek out beside the physical cutout, flush at the screen top. The right wing carries a priority-accent dot, or a mini progress ring when the notification carries progress. The wings are the ambient signal - there is no glyph or label.
-3. **Revealed pill** (hover): hovering the physical notch or its wings slides a second notch-shaped pill down beneath the cutout with the collapsed content. Leaving conceals it back to the wings after a short grace.
+3. **Revealed pill** (hover): hovering the physical notch or its wings drops a notch-shaped pill down out of the cutout with the collapsed content. The pill covers the notch (its concave top sits flush at the screen edge, over the cutout) so it reads as one shape, never a second notch. Leaving conceals it back to the wings after a short grace.
 4. **Expanded card** (click / arrival): the full card. Click the revealed pill to expand; click the card surface (anywhere that is not a button) to collapse.
 
 A fresh notification arrives EXPANDED, holds ~2.6s, then auto-collapses to the pill. A **decision** (a notification carrying actions, i.e. a pending `--wait`) and any **critical** notification stay expanded and never auto-collapse. The window is a click-through envelope: clicks pass to the apps underneath except over the drawn pill or card. Float / non-notch mode skips the ambient-wings and hover-reveal steps - the pill is always visible and expands on click.
@@ -736,7 +736,7 @@ A `--wait` decision on the island arrives expanded and stays expanded until you 
 
 ### Notch vs float
 
-- **Notch mode** (default): the capsule hugs the top-center notch. The compact pill is sized and positioned from the real measured cutout - its width matches the physical cutout so it reads as an extension of the notch, and the island is offset down by the cutout height so content sits below the notch, never behind it. The pill stays pure black even in light appearance so it blends with the physical notch. `position` is ignored in notch mode.
+- **Notch mode** (default): the capsule covers the top-center notch. Its concave-shouldered top sits flush at the screen edge, over the physical cutout, so the black shape absorbs the hardware notch and reads as one shape (never a second notch below it). The compact pill matches the cutout width, and content is inset below the cutout so nothing renders behind it. The pill stays pure black even in light appearance so it blends with the physical notch. `position` is ignored in notch mode.
 - **Float mode**: a fully-rounded floating capsule you can place `left`, `center`, `right`, or `bottom-center` (`bottom-center` is float-only and expands upward). Non-notch Macs, Windows, and Linux always float; float layout is unchanged by the notch adaptation.
 
 Float placement (`mode: float`) anchors the capsule to any edge; `bottom-center` expands upward.

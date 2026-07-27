@@ -56,9 +56,11 @@ active island notifications.
    ambient signal; there is no glyph or label (it cannot seat legibly in that
    band).
 3. **Revealed pill** (hover): hovering the physical notch or its ambient wings
-   slides a second notch-shaped pill down beneath the cutout with the collapsed
-   content. Moving the cursor away conceals it back to the wings after a short
-   grace (400ms), so a brief overshoot on the way to the pill does not flicker it.
+   drops a notch-shaped pill down out of the cutout with the collapsed content. The
+   pill covers the notch - its concave top sits flush at the screen edge, over the
+   cutout - so it reads as one shape, never a second notch. Moving the cursor away
+   conceals it back to the wings after a short grace (400ms), so a brief overshoot
+   on the way to the pill does not flicker it.
 4. **Expanded card** (click / arrival): the full card with icon, title, body,
    progress, action buttons, and a hover-visible dismiss x. Click the revealed
    pill to expand; click the card surface (anywhere that is not a button) to
@@ -152,12 +154,13 @@ human decision should branch on all three codes (see
 
 ## Notch vs float
 
-- **Notch mode** (default): the capsule hugs the top-center notch. The compact
-  pill is sized and positioned from the real measured cutout - its width matches
-  the physical cutout so it reads as an extension of the notch, and the whole
-  island is offset down by the cutout height so content sits below the cutout,
-  never behind it. The pill stays pure black even in light appearance so it
-  blends with the physical notch. `position` is ignored in notch mode.
+- **Notch mode** (default): the capsule covers the top-center notch. Its
+  concave-shouldered top sits flush at the screen edge, over the physical cutout,
+  so the black shape absorbs the hardware notch and reads as one shape - never a
+  second notch below it. The compact pill matches the cutout width, and content is
+  inset below the cutout so nothing renders behind it. The pill stays pure black
+  even in light appearance so it blends with the physical notch. `position` is
+  ignored in notch mode.
 - **Float mode**: a fully-rounded floating capsule placed `left`, `center`,
   `right`, or `bottom-center` (`bottom-center` is float-only and expands upward).
   Non-notch Macs, Windows, and Linux always float. Float layout is unchanged from

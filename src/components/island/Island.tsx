@@ -143,10 +143,10 @@ interface IslandProps {
   /** Auto-dismiss handler. The host wires this to `dismiss_notification`, the
    *  same path the card uses -> waiter Dismissed -> CLI exit 1. */
   readonly onDismiss?: (notificationId: string) => void;
-  /** Physical notch cutout geometry (T13). In notch mode WITH a geometry the pill renders as a
-   *  second notch directly below the cutout (its width matches the cutout and the whole island is
-   *  offset down by the cutout height); `null`/float keeps the pre-existing floating layout. Supplied
-   *  by IslandOverlay; omitted (null) in the unit/render harnesses. */
+  /** Physical notch cutout geometry (T13). In notch mode WITH a geometry the pill COVERS the cutout
+   *  (option A): its width matches the cutout and the shape is grown to sit flush at the screen top over
+   *  the notch, with content inset below it; `null`/float keeps the pre-existing floating layout.
+   *  Supplied by IslandOverlay; omitted (null) in the unit/render harnesses. */
   readonly notchGeometry?: NotchGeometry | null;
   /** Backend hover-reveal signal (T13, `island:reveal`): true while the physical notch, its ambient
    *  wings, or the pill is hovered. Governs the COLLAPSED under-notch pill only (collapsed + not
@@ -269,6 +269,9 @@ export const Island = forwardRef<IslandHandle, IslandProps>(function Island(
     // Creation-read path: adopt the persisted settings BEFORE arriving, so the
     // first paint already has the user's geometry (no snap-then-jump).
     controller.configure(settingsRef.current);
+    // Cover-the-notch cap BEFORE the first snap, so the arrival geometry already
+    // covers the cutout (no uncovered->covered jump on the first paint).
+    controller.setNotchCap(underNotch ? notchGeometry!.heightLogical : 0);
     controller.snap(renderStateRef.current, isReduced());
     // Apply the initial surface (light card / float pill / mirrored path) before
     // the first paint so appearance is correct on arrival, not one frame late.
@@ -321,6 +324,13 @@ export const Island = forwardRef<IslandHandle, IslandProps>(function Island(
   useEffect(() => {
     controllerRef.current?.setSurface({ light: isLight, mode, mirrored });
   }, [isLight, mode, mirrored]);
+
+  // Live cover-the-notch cap: on a display change (notch <-> float, or a different
+  // cutout) re-target the shape's cover height. The mount run is a no-op (the
+  // creation snap already set the same cap; setNotchCap guards on an unchanged value).
+  useEffect(() => {
+    controllerRef.current?.setNotchCap(underNotch ? notchGeometry!.heightLogical : 0);
+  }, [underNotch, notchGeometry]);
 
   // Re-measure expanded content when it changes size (rounding-guarded retarget).
   useEffect(() => {
@@ -415,8 +425,9 @@ export const Island = forwardRef<IslandHandle, IslandProps>(function Island(
   // SVG path (`var(--s-card-bg, ...)`) and the content (invariant c). Compact
   // keeps its hardcoded #000000 fill and never reads these (invariant d).
   const styleVars = buildStyleVars(notification.style, notification.font);
-  // Under-notch offset var (T13): the reveal wrapper translates the whole island DOWN by the cutout
-  // height so both compact and expanded content sit fully below the physical cutout (island.css).
+  // Cover-the-notch var (T13; option A): publish the cutout height on the reveal wrapper. It feeds the
+  // `.di-content` top padding (content sits below the cutout) and pairs with the compact cover height;
+  // the shape itself rests flush at the screen top, covering the notch (island.css).
   const revealStyle: CSSProperties = underNotch
     ? ({ "--di-notch-h": `${notchGeometry!.heightLogical}px` } as CSSProperties)
     : {};

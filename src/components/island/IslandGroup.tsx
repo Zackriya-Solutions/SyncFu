@@ -71,9 +71,10 @@ interface IslandGroupProps {
    *  (values come from the settings store). */
   readonly appearance?: IslandAppearance;
   readonly mode?: IslandMode;
-  /** Physical notch cutout geometry (T13). In notch mode the grouped spotlight is offset DOWN by the
-   *  cutout height so it sits below the notch (never behind it); the group stays ALWAYS visible (no
-   *  hover-reveal - it represents a pile the user is actively triaging). Null/float keeps the layout. */
+  /** Physical notch cutout geometry (T13). In notch mode the grouped spotlight COVERS the cutout
+   *  (option A): the shape sits flush at the screen top over the notch with content inset below it; the
+   *  group stays ALWAYS visible (no hover-reveal - it represents a pile the user is actively triaging).
+   *  Null/float keeps the layout. */
   readonly notchGeometry?: NotchGeometry | null;
   /** Settle report (BUG B): the shape hitbox on morph settle, so the backend cursor tracker makes the
    *  grouped spotlight clickable (parity with the single island). */
@@ -138,6 +139,8 @@ export function IslandGroup({
     );
     controllerRef.current = controller;
     controller.configure(settingsRef.current);
+    // Cover-the-notch cap before the first snap (parity with the single island).
+    controller.setNotchCap(underNotch ? notchGeometry!.heightLogical : 0);
     controller.snap("compact", isReduced());
     controller.setSurface({ light: isLight, mode, mirrored: false });
 
@@ -168,6 +171,12 @@ export function IslandGroup({
   useEffect(() => {
     controllerRef.current?.setSurface({ light: isLight, mode, mirrored: false });
   }, [isLight, mode]);
+
+  // Live cover-the-notch cap (parity with the single island): re-target the cover
+  // height on a display change. Mount run is a guarded no-op.
+  useEffect(() => {
+    controllerRef.current?.setNotchCap(underNotch ? notchGeometry!.heightLogical : 0);
+  }, [underNotch, notchGeometry]);
 
   // Re-measure the expanded list when its row set changes (rounding-guarded).
   useEffect(() => {
@@ -211,7 +220,8 @@ export function IslandGroup({
   // A light expanded card / float pill re-skins content to the dark ink ramp; the
   // notch compact spotlight keeps its light text on black (parity with Island).
   const lightContent = isLight && (expanded || mode === "float");
-  // Under-notch offset var (T13): translate the grouped spotlight down by the cutout height.
+  // Cover-the-notch var (T13; option A): the cutout height feeds the `.di-content` top padding and the
+  // compact cover height; the grouped spotlight rests flush at the screen top, covering the notch.
   const revealStyle: CSSProperties = underNotch
     ? ({ "--di-notch-h": `${notchGeometry!.heightLogical}px` } as CSSProperties)
     : {};
