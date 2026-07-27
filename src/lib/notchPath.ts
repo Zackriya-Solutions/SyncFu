@@ -115,20 +115,6 @@ export function floatWallRadius(H: number, expanded: boolean): number {
   return expanded ? EXPANDED_FLOAT_RADIUS : H / 2;
 }
 
-export type ContentKind = "compact" | "card" | "list";
-
-// DRIFT RESOLUTION: the mockup drifts the additive margin across presets
-// (+4 compact, +5 / +4 expanded card, +2 list). We canonicalize to ONE margin
-// per content type - the dominant (larger) value, since a larger inset is
-// strictly safer for R-WALL. Base floors are the compact/card/list defaults.
-export const WALL_MARGIN: Record<ContentKind, number> = { compact: 4, card: 5, list: 2 };
-export const WALL_BASE: Record<ContentKind, number> = { compact: 14, card: 16, list: 8 };
-
-/**
- * Horizontal content padding for a given wall inset + content type, mirroring
- * the mockup's `max(base, calc(var(--di-wall) + margin))`. Always `>= wall`, so
- * content never crosses the concave shoulder (R-WALL).
- */
-export function wallPadding(wall: number, kind: ContentKind): number {
-  return Math.max(WALL_BASE[kind], wall + WALL_MARGIN[kind]);
-}
+// The content-padding rule itself lives in island.css as
+// `max(<base>px, calc(var(--di-wall) + <margin>px))` per content type - the CSS is
+// the single source of truth (a JS mirror was never called and was removed).

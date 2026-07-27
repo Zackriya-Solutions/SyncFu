@@ -219,6 +219,20 @@ impl NotificationManager {
         self.active.read().await.len()
     }
 
+    /// Active count for ONE presentation. The hide/track lifecycle is per-window
+    /// (review P2): the island window (and its cursor tracker) must be torn down
+    /// when the island count hits 0 even if cards remain, and vice versa - gating
+    /// on the GLOBAL count leaked the ~10Hz island poll whenever an island was
+    /// emptied while a card outlived it.
+    pub async fn active_count_for(&self, presentation: Presentation) -> usize {
+        self.active
+            .read()
+            .await
+            .values()
+            .filter(|n| n.presentation == presentation)
+            .count()
+    }
+
     pub async fn list_active(&self) -> Vec<NotificationPayload> {
         self.active.read().await.values().cloned().collect()
     }

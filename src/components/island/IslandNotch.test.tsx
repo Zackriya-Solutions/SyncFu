@@ -173,6 +173,31 @@ describe("Island under-notch layout (T13/T14)", () => {
     expect(screen.queryByTestId("island-ambient")).not.toBeInTheDocument();
   });
 
+  it("a critical no-action notification NEVER auto-collapses (stays expanded)", () => {
+    // Documented invariant: any critical notification stays expanded and never
+    // auto-collapses (parity with the card that never auto-dismisses critical).
+    vi.stubGlobal("requestAnimationFrame", () => 1);
+    vi.stubGlobal("cancelAnimationFrame", () => {});
+    vi.useFakeTimers();
+    try {
+      render(
+        <Island
+          notification={makeNotification({ priority: "critical" })}
+          mode="notch"
+          notchGeometry={G1}
+        />
+      );
+      expect(screen.getByTestId("island-expanded")).toBeInTheDocument();
+      // Well past the 2.6s hold — a non-critical notification would have collapsed.
+      act(() => vi.advanceTimersByTime(10000));
+      expect(screen.getByTestId("island-expanded")).toBeInTheDocument();
+      expect(screen.queryByTestId("island-compact")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("arrival does NOT auto-collapse while hovered; collapses once the cursor leaves", () => {
     // Regression: the arrival card must not collapse out from under a reader. While
     // `hovered` (island:hover) is true the 2.6s auto-collapse is deferred; when the

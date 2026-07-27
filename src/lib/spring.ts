@@ -153,18 +153,5 @@ export function createSpringLoop(onFrame: (dt: number) => boolean): SpringLoop {
   };
 }
 
-// --- Hover (FR-6) ------------------------------------------------------------
-// The island lifts on hover: scale 1.028, top-anchored, 150ms transition after
-// a 150ms open delay (mockup .di-island ~L108/114). Closes the FR-6 gap.
-export const HOVER = {
-  scale: 1.028,
-  origin: "top center",
-  durationMs: 150,
-  delayMs: 150,
-  easing: "cubic-bezier(0.22,1,0.36,1)",
-} as const;
-
-/** Hover scale factor: 1.028 when hovered, 1 at rest. Top-anchored (see HOVER). */
-export function hoverScale(hovered: boolean): number {
-  return hovered ? HOVER.scale : 1;
-}
+// (The hover lift is a pure CSS transform in island.css - `.di-island:hover
+// { transform: scale(1.028) }` - so no JS spring/const is needed here.)

@@ -1,11 +1,12 @@
 import type { CSSProperties } from "react";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { IslandAppearance, IslandMode } from "@/types/islandSettings";
 import type { IslandRow, IslandSnapshot } from "@/types/islandSnapshot";
 import { useIslandSettingsStore } from "@/stores/islandSettingsStore";
 import { resolveTimeout } from "@/lib/timeout";
 import {
   createMorphController,
+  effectiveIslandSettings,
   type MorphController,
   type NotchGeometry,
 } from "@/lib/islandMorph";
@@ -99,13 +100,22 @@ export function IslandGroup({
   const [isLight, setIsLight] = useState(() => resolveLightNow(appearance));
   useEffect(() => setIsLight(resolveLightNow(appearance)), [appearance]);
 
+  // Parity with the single island (review P2): adopt the notch geometry into the
+  // compact geometry the controller targets, so the grouped spotlight shares the
+  // exact width/height math (ambient-wings width under a notch) instead of the raw
+  // settings width. Float / no-geometry returns settings unchanged.
+  const effSettings = useMemo(
+    () => effectiveIslandSettings(settings, mode, notchGeometry),
+    [settings, mode, notchGeometry]
+  );
+
   const islandRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const pathRef = useRef<SVGPathElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<MorphController | null>(null);
-  const settingsRef = useRef(settings);
-  settingsRef.current = settings;
+  const settingsRef = useRef(effSettings);
+  settingsRef.current = effSettings;
   const isReduced = () =>
     settingsRef.current.reducedMotion || prefersReducedMotion();
   const onSettleRef = useRef(onSettle);
@@ -203,18 +213,30 @@ export function IslandGroup({
   // Per-item auto-dismiss, PAUSED while the list is open (D5). Restarts from full
   // on collapse. Critical (resolveTimeout === null) and waiter-bearing rows never
   // fire (F2 suppression scope).
+  //
+  // Keyed on a STABLE signature of the dismissable row set (id/timeout/priority/
+  // waiter), NOT the whole snapshot object (review P2): a progress or body update
+  // produces a fresh snapshot with the same dismissable set, and must NOT tear down
+  // and restart every row's countdown from full - otherwise a steady stream of
+  // updates means a row never reaches its timeout. `rowsRef` supplies the latest
+  // rows without widening the deps (the ids/ms the timers use are unchanged when
+  // only the signature-excluded fields churn).
+  const rowsRef = useRef(snapshot.rows);
+  rowsRef.current = snapshot.rows;
+  const dismissKey = snapshot.rows
+    .map((r) => `${r.id}|${r.hasWaiter ? 1 : 0}|${r.priority}|${JSON.stringify(r.timeout)}`)
+    .join(",");
   useEffect(() => {
     if (expanded) return;
-    const timers = snapshot.rows.flatMap((row) => {
-      // F2 suppression scope: waiter-bearing and critical rows never auto-dismiss
-      // (critical regardless of any explicit timeout).
+    const timers = rowsRef.current.flatMap((row) => {
       if (row.hasWaiter || row.priority === "critical") return [];
       const ms = resolveTimeout(row.timeout, row.priority);
       if (ms === null) return [];
       return [setTimeout(() => onDismiss(row.id), ms)];
     });
     return () => timers.forEach(clearTimeout);
-  }, [expanded, snapshot, onDismiss]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expanded, dismissKey, onDismiss]);
 
   const spot = snapshot.spotlight;
   // A light expanded card / float pill re-skins content to the dark ink ramp; the

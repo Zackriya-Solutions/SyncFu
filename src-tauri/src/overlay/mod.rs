@@ -40,8 +40,10 @@ impl OverlayRoute {
 
 /// Hide the overlay window that hosts a notification of the given presentation.
 ///
-/// Only ever hides the matching window (R-TWOWIN); the other window is already empty/hidden when
-/// the global active count reaches zero. Shared by the Tauri command and HTTP server paths.
+/// Only ever hides the matching window (R-TWOWIN). Callers gate this on the dismissed
+/// presentation's OWN active count reaching zero (`active_count_for`), so each window
+/// (and, for the island, its cursor tracker) is torn down independently of the other.
+/// Shared by the Tauri command and HTTP server paths.
 pub fn hide_for(app: &tauri::AppHandle, presentation: Presentation) {
     match OverlayRoute::of(presentation) {
         OverlayRoute::Panel => panel::hide_panel(app),

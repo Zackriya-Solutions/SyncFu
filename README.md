@@ -691,7 +691,7 @@ syncfu send -t "Fancy" --font "Space Grotesk" "With a custom font"
 
 ## Notch notifications
 
-The **notch notification** is syncfu's second presentation: a pure-black capsule anchored top-center that spring-morphs between a compact pill and an expanded card. It is additive - the top-right glass card stays the default, and you opt in per notification. On a MacBook it **covers the physical notch** (its concave wedge top sits flush at the screen edge, over the cutout, so it reads as one shape); on non-notch Macs, Windows, and Linux it renders as a floating capsule.
+The **notch notification** is syncfu's second presentation and, as of 0.4.0, the **default** — `syncfu send` routes here unless you pass `--presentation card`. It is a pure-black capsule anchored top-center that spring-morphs between a compact pill and an expanded card. On a MacBook it **covers the physical notch** (its concave wedge top sits flush at the screen edge, over the cutout, so it reads as one shape); on non-notch Macs, Windows, and Linux it renders as a floating capsule.
 
 It suits glanceable, ambient status for long agent tasks (timers, progress, approvals), and it can be hidden from screen recording and screen sharing so private notifications do not leak on a live capture (see the [support matrix](#screen-capture-support-matrix) for the exact per-OS guarantee). For the full reference (every setting, the payload field, troubleshooting), see [`docs/island.md`](docs/island.md).
 

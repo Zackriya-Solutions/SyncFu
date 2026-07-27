@@ -348,6 +348,11 @@ export const Island = forwardRef<IslandHandle, IslandProps>(function Island(
   // auto-dismiss is the SHARED resolveTimeout (parity: no island-specific timing);
   // critical resolves to null and never auto-dismisses.
   const isDecision = notification.actions.length > 0;
+  // A critical notification stays expanded and never auto-collapses (documented
+  // invariant, parity with the top-right card that never auto-dismisses critical).
+  // NOT keyed on autoDismissMs === null: a `--timeout never` NON-critical ambient
+  // status should still collapse to the pill; only critical holds expanded.
+  const isCritical = notification.priority === "critical";
   const autoDismissMs = resolveTimeout(notification.timeout, notification.priority);
 
   // Live cursor-over-shape signal (T17, `island:hover`), read via a ref so a hover
@@ -357,8 +362,9 @@ export const Island = forwardRef<IslandHandle, IslandProps>(function Island(
   hoveredRef.current = hovered;
 
   // Ratified entry transition: arrive expanded, hold, auto-collapse to the pill.
-  // Skipped while controlled (the harness/tests pin the state) AND for decisions,
-  // which STAY EXPANDED until answered (invariant b; T4b auto-collapse suppressed).
+  // Skipped while controlled (the harness/tests pin the state), for decisions (which
+  // STAY EXPANDED until answered), and for CRITICAL notifications (which stay expanded
+  // and never auto-collapse - documented invariant b; T4b auto-collapse suppressed).
   // Keyed on renderState so a MANUAL expand (click trigger below) re-arms the
   // hold and the island re-collapses after the same interval.
   //
@@ -366,7 +372,7 @@ export const Island = forwardRef<IslandHandle, IslandProps>(function Island(
   // reader. Once the hold elapses, wait until the cursor leaves the island, then
   // collapse to the pill - mirroring the auto-dismiss hover-pause below.
   useEffect(() => {
-    if (controlled || isDecision || renderState !== "expanded") return;
+    if (controlled || isDecision || isCritical || renderState !== "expanded") return;
     const HOVER_POLL_MS = 200;
     let poll: ReturnType<typeof setTimeout>;
     const tick = () => {
@@ -381,7 +387,7 @@ export const Island = forwardRef<IslandHandle, IslandProps>(function Island(
       clearTimeout(armed);
       clearTimeout(poll);
     };
-  }, [controlled, isDecision, renderState]);
+  }, [controlled, isDecision, isCritical, renderState]);
 
   // User click trigger: the island toggles compact<->expanded on click (the
   // approved mockup's live behavior). Clicks on interactive children (action

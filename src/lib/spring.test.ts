@@ -5,8 +5,6 @@ import {
   SPRING_EPS,
   pickSpring,
   createSpringLoop,
-  HOVER,
-  hoverScale,
 } from "./spring";
 
 /** Step a spring at 60fps until it rests; return the frame count (capped). */
@@ -108,16 +106,5 @@ describe("createSpringLoop (A6 dispose + rest parking)", () => {
     cb!(16); // pump one frame
     expect(onFrame).toHaveBeenCalledTimes(1);
     expect(loop.running).toBe(false);
-  });
-});
-
-describe("hover (FR-6)", () => {
-  it("lifts to 1.028 top-anchored on hover, 1 at rest", () => {
-    expect(hoverScale(true)).toBe(1.028);
-    expect(hoverScale(false)).toBe(1);
-    expect(HOVER.scale).toBe(1.028);
-    expect(HOVER.origin).toBe("top center");
-    expect(HOVER.delayMs).toBe(150);
-    expect(HOVER.durationMs).toBe(150);
   });
 });

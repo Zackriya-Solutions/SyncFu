@@ -94,7 +94,7 @@ async fn dismiss_notification(
         app.emit("notification:dismiss", &id)
             .map_err(|e| e.to_string())?;
         // Hide the hosting window if no more active notifications
-        if manager.active_count().await == 0 {
+        if manager.active_count_for(notification.presentation).await == 0 {
             overlay::hide_for(&app, notification.presentation);
         }
     }
@@ -203,7 +203,7 @@ async fn action_callback(
     if let Some(ref notification) = dismissed {
         app.emit("notification:dismiss", &notification_id)
             .map_err(|e| e.to_string())?;
-        if manager.active_count().await == 0 {
+        if manager.active_count_for(notification.presentation).await == 0 {
             overlay::hide_for(&app, notification.presentation);
         }
     }

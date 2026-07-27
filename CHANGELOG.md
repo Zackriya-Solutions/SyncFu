@@ -34,9 +34,27 @@ All notable changes to syncfu are documented here. This project adheres to
 
 - The arrival card no longer auto-collapses while the cursor is over it (hover-pause,
   matching the top-right card).
-- Hover-reveal no longer shifts the pill sideways — the revealed pill shares the
+- Hover-reveal no longer shifts the pill sideways: the revealed pill shares the
   ambient wings' width, so only the content drops in.
 - The expanded card's close button no longer overlaps the timestamp.
+- Critical notifications now stay expanded on the notch notification too, instead of
+  minimizing to an ambient dot after 2.6s (matches the documented invariant).
+- The grouped-list per-item auto-dismiss timers no longer restart on unrelated
+  snapshot changes (a progress tick could previously keep a row from ever dismissing).
+
+### Security
+
+- Removed the permissive CORS layer from the localhost HTTP control port. The API's
+  clients (CLI, curl, server-side) do not need CORS; dropping it prevents any website
+  from reaching `:9868` cross-origin to spoof notifications or inject a callback URL.
+
+### Internal
+
+- The island window and its cursor tracker now tear down per-presentation (when the
+  island empties, even if top-right cards remain) instead of on the global active
+  count, so no idle cursor poll leaks.
+- Removed dead helpers (`spring` hover constants, the `notchPath` wall-padding mirror);
+  the hover lift and content padding live in CSS, the single source of truth.
 
 ### Docs
 

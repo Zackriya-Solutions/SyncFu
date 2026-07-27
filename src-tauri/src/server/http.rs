@@ -12,7 +12,6 @@ use futures::stream::Stream;
 use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
-use tower_http::cors::CorsLayer;
 
 use crate::notification::manager::NotificationManager;
 use crate::notification::types::{
@@ -109,9 +108,14 @@ pub fn build_router(state: ServerState) -> Router {
         .route("/dismiss-all", post(handle_dismiss_all))
         .route("/health", get(handle_health))
         .route("/active", get(handle_active))
-        .layer(CorsLayer::permissive())
         .with_state(state)
 }
+// NOTE (security review P1): no CORS layer. The server binds loopback only and its
+// only clients are the CLI, curl, and server-side integrations - none of which need
+// CORS. A permissive CORS layer previously let any website POST cross-origin to
+// :9868 to spoof notifications or inject a `callback_url` (SSRF); removing it closes
+// that browser vector entirely. (A callback_url denylist is deliberately NOT added -
+// localhost/private callbacks are a documented, legitimate use of this local tool.)
 
 /// Start the HTTP server on the given port.
 pub async fn start_server(state: ServerState, port: u16) -> Result<(), std::io::Error> {
@@ -261,7 +265,7 @@ async fn handle_action(
     if let Some(ref notification) = dismissed {
         if let Some(ref app) = state.app_handle {
             let _ = tauri::Emitter::emit(app, "notification:dismiss", &id);
-            if state.manager.active_count().await == 0 {
+            if state.manager.active_count_for(notification.presentation).await == 0 {
                 crate::overlay::hide_for(app, notification.presentation);
             }
         }
@@ -407,7 +411,7 @@ async fn handle_dismiss(
         if let Some(ref app) = state.app_handle {
             let _ = tauri::Emitter::emit(app, "notification:dismiss", &id);
             // Hide the hosting window if no more active notifications
-            if state.manager.active_count().await == 0 {
+            if state.manager.active_count_for(notification.presentation).await == 0 {
                 crate::overlay::hide_for(app, notification.presentation);
             }
             crate::emit_island_snapshot(app, &state.manager, &state.waiters).await;

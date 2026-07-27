@@ -3,11 +3,9 @@ import {
   notchPath,
   notchPathMirrored,
   capsulePath,
-  wallPadding,
   floatWallRadius,
   EXPANDED_FLOAT_RADIUS,
   RADII,
-  WALL_MARGIN,
 } from "./notchPath";
 
 // Parity tolerance vs the mockup: the generator quantizes every coordinate to 2
@@ -99,22 +97,6 @@ describe("capsulePath (float mode)", () => {
 });
 
 describe("wall inset (R-WALL)", () => {
-  it("padding never lets content cross the shoulder (padding >= wall)", () => {
-    for (let wall = 0; wall <= 40; wall += 0.5) {
-      for (const kind of ["compact", "card", "list"] as const) {
-        expect(wallPadding(wall, kind)).toBeGreaterThanOrEqual(wall);
-      }
-    }
-  });
-
-  it("applies the canonical margin per content type", () => {
-    // Base floors dominate at small walls; wall+margin dominates at large walls.
-    expect(wallPadding(6, "compact")).toBe(14); // max(14, 6+4)
-    expect(wallPadding(19, "card")).toBe(24); // max(16, 19+5)
-    expect(wallPadding(19, "list")).toBe(21); // max(8, 19+2)
-    expect(WALL_MARGIN).toEqual({ compact: 4, card: 5, list: 2 });
-  });
-
   it("float wall radius resolves the 22/24 drift to 24 when expanded", () => {
     expect(floatWallRadius(34, false)).toBe(17); // compact = H/2
     expect(floatWallRadius(120, true)).toBe(EXPANDED_FLOAT_RADIUS);
